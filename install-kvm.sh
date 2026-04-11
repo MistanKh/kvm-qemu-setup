@@ -902,11 +902,13 @@ setup_virtio_windows() {
     
     download_failed=false
     if command -v wget >/dev/null 2>&1; then
-        if ! sudo wget --timeout=30 -q "$virtio_url" -O "$virtio_dir/virtio-win.iso" 2>/dev/null; then
+        print_info "Downloading with wget..."
+        if ! sudo wget --timeout=120 --progress=bar:force "$virtio_url" -O "$virtio_dir/virtio-win.iso" 2>&1 | tail -n 10; then
             download_failed=true
         fi
     elif command -v curl >/dev/null 2>&1; then
-        if ! sudo curl --max-time 30 -sL "$virtio_url" -o "$virtio_dir/virtio-win.iso" 2>/dev/null; then
+        print_info "Downloading with curl..."
+        if ! sudo curl --max-time 120 -# -L "$virtio_url" -o "$virtio_dir/virtio-win.iso" 2>&1; then
             download_failed=true
         fi
     else
