@@ -884,6 +884,59 @@ setup_default_network() {
     print_success "Default network configured"
 }
 
+setup_iptables_backend() {
+    echo ''
+    
+    # Check if iptables is installed
+    iptables_installed=false
+    if command -v iptables >/dev/null 2>&1; then
+        iptables_installed=true
+    fi
+    
+    # Check if nftables is installed (conflicts with iptables backend)
+    nftables_installed=false
+    if command -v nft >/dev/null 2>&1; then
+        nftables_installed=true
+    fi
+    
+    if [ "$nftables_installed" = "true" ] && [ "$iptables_installed" = "false" ]; then
+        print_info "nftables detected, configuring libvirt to use iptables backend..."
+        
+        # Create or modify libvirt network.conf
+        sudo mkdir -p /etc/libvirt
+        sudo tee /etc/libvirt/network.conf > /dev/null << 'EOF'
+firewall_backend = "iptables"
+EOF
+        
+        print_success "Libvirt configured to use iptables backend"
+    elif [ "$iptables_installed" = "true" ]; then
+        print_skip "iptables already available"
+    else
+        print_warning "Neither iptables nor nftables detected"
+        print_info "Installing iptables..."
+        case "$OS" in
+            arch)
+                sudo pacman -S --noconfirm iptables
+                ;;
+            debian|ubuntu)
+                sudo apt update -qq
+                sudo apt install -y iptables
+                ;;
+            fedora|rhel)
+                sudo dnf install -y iptables
+                ;;
+        esac
+        
+        # Configure libvirt to use iptables backend
+        sudo mkdir -p /etc/libvirt
+        sudo tee /etc/libvirt/network.conf > /dev/null << 'EOF'
+firewall_backend = "iptables"
+EOF
+        
+        print_success "iptables installed and libvirt configured"
+    fi
+}
+
 setup_virtio_windows() {
     echo ''
     win_guests=''
@@ -1156,6 +1209,7 @@ main() {
     setup_acl
     setup_network_bridge
     setup_default_network
+    setup_iptables_backend
     setup_virtio_windows
     show_iommu_guide
     show_next_steps
