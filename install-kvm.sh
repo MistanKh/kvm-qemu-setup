@@ -43,7 +43,11 @@ init_shell() {
         SHELL_NAME="sh"
     fi
     
-    SHELL_NAME="${SHELL_NAME:-${SHELL##*/}}"
+    # Get shell name without path - POSIX compatible
+    case "$SHELL" in
+        */*) SHELL_NAME=$(expr "$SHELL" : '.*/\(.*\)') ;;
+        *)   SHELL_NAME=${SHELL:-sh} ;;
+    esac
     SHELL_EXT="${SHELL_EXT:-sh}"
 }
 
@@ -176,7 +180,11 @@ detect_shell() {
     print_step 2 10 "Detecting Shell"
     echo ''
     
-    SHELL_NAME="${SHELL##*/}"
+    # Get shell name without path - POSIX compatible
+    case "$SHELL" in
+        */*) SHELL_NAME=$(expr "$SHELL" : '.*/\(.*\)') ;;
+        *)   SHELL_NAME=${SHELL:-sh} ;;
+    esac
     
     case "$SHELL_NAME" in
         bash)
@@ -243,6 +251,12 @@ check_virtualization() {
     print_step 4 10 "Checking Hardware Virtualization"
     echo ''
     
+    if ! command -v lscpu >/dev/null 2>&1; then
+        print_warning "lscpu not found - skipping virtualization check"
+        print_info "Install util-linux package if issues occur"
+        return
+    fi
+    
     VIRT_SUPPORT=$(lscpu 2>/dev/null | grep -i virtualization | head -1)
     CPU_VENDOR=$(lscpu 2>/dev/null | grep -i "Vendor ID" | awk '{print $NF}')
     
@@ -255,20 +269,24 @@ check_virtualization() {
             print_success "AMD-V: \033[1mENABLED\033[0m"
             print_info "Hardware virtualization ready for AMD CPUs"
             ;;
-        *)
-            print_error "Hardware virtualization: DISABLED or NOT SUPPORTED"
-            echo ''
-            print_warning "Please enable virtualization in BIOS/UEFI:"
-            printf '\033[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)\033[0m\n'
-            printf '\033[2m  • AMD CPUs: Enable AMD-V (SVM Mode)\033[0m\n'
-            echo ''
-            
-            continue_prompt=''
-            ask_no "Continue anyway?" continue_prompt
-            case "$continue_prompt" in
-                Y|y) ;;
-                *) echo -e "\n\033[0;31mExiting...\033[0m"; exit 1 ;;
-            esac
+        "")
+            if [ -n "$CPU_VENDOR" ]; then
+                print_error "Hardware virtualization: DISABLED or NOT SUPPORTED"
+                echo ''
+                print_warning "Please enable virtualization in BIOS/UEFI:"
+                printf '\033[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)\033[0m\n'
+                printf '\033[2m  • AMD CPUs: Enable AMD-V (SVM Mode)\033[0m\n'
+                echo ''
+                
+                continue_prompt=''
+                ask_no "Continue anyway?" continue_prompt
+                case "$continue_prompt" in
+                    Y|y) ;;
+                    *) echo -e "\n\033[0;31mExiting...\033[0m"; exit 1 ;;
+                esac
+            else
+                print_skip "Could not determine CPU virtualization status"
+            fi
             ;;
     esac
 }
@@ -277,6 +295,13 @@ check_kvm_modules() {
     print_step 5 10 "Checking KVM Kernel Modules"
     echo ''
     
+    # Check if we have modinfo
+    if ! command -v modinfo >/dev/null 2>&1; then
+        print_warning "modinfo not found - cannot verify KVM modules"
+        print_info "KVM may still work on this system"
+        return
+    fi
+    
     if ! modinfo kvm >/dev/null 2>&1; then
         print_error "KVM kernel module not available"
         print_info "Your kernel may not support KVM"
@@ -284,8 +309,14 @@ check_kvm_modules() {
     fi
     print_success "KVM module: Available"
     
+    # CPU_VENDOR might be empty if lscpu failed
+    if [ -z "$CPU_VENDOR" ]; then
+        # Try to detect from /proc/cpuinfo
+        CPU_VENDOR=$(grep -m1 "vendor_id" /proc/cpuinfo 2>/dev/null | awk -F: '{print $2}' | tr -d ' ')
+    fi
+    
     case "$CPU_VENDOR" in
-        GenuineIntel)
+        *Intel*|*GenuineIntel*)
             if modinfo kvm-intel >/dev/null 2>&1; then
                 if lsmod | grep -q "^kvm-intel"; then
                     print_success "kvm-intel module: \033[1mLOADED\033[0m"
@@ -301,7 +332,7 @@ check_kvm_modules() {
                 fi
             fi
             ;;
-        AuthenticAMD)
+        *AMD*|*AuthenticAMD*)
             if modinfo kvm-amd >/dev/null 2>&1; then
                 if lsmod | grep -q "^kvm-amd"; then
                     print_success "kvm-amd module: \033[1mLOADED\033[0m"
@@ -317,6 +348,9 @@ check_kvm_modules() {
                 fi
             fi
             ;;
+        *)
+            print_skip "Could not detect CPU vendor for KVM module check"
+            ;;
     esac
 }
 
@@ -326,18 +360,24 @@ check_iommu() {
     
     IOMMU_ENABLED=false
     
-    if dmesg 2>/dev/null | grep -qi "DMAR\|IOMMU"; then
-        if [ -f /proc/cmdline ] && grep -q "intel_iommu=on\|amd_iommu=on\|iommu=on" /proc/cmdline; then
-            print_success "IOMMU: \033[1mENABLED\033[0m"
-            IOMMU_ENABLED=true
-        else
-            print_warning "IOMMU: Detected but not enabled in kernel"
-            print_info "Required for PCIe passthrough (GPU, USB, etc.)"
-        fi
-    else
-        print_skip "IOMMU: Not detected in kernel messages"
-        print_info "IOMMU adds overhead - disable if not needed for passthrough"
+    # Check kernel cmdline first (always accessible)
+    if [ -f /proc/cmdline ] && grep -q "intel_iommu=on\|amd_iommu=on\|iommu=on" /proc/cmdline; then
+        print_success "IOMMU: \033[1mENABLED\033[0m"
+        IOMMU_ENABLED=true
+        return
     fi
+    
+    # Try dmesg if available (may be restricted)
+    if command -v dmesg >/dev/null 2>&1; then
+        if dmesg 2>/dev/null | grep -qi "DMAR\|IOMMU"; then
+            print_warning "IOMMU: Detected in hardware but not enabled in kernel"
+            print_info "Required for PCIe passthrough (GPU, USB, etc.)"
+            return
+        fi
+    fi
+    
+    print_skip "IOMMU: Not detected or not enabled"
+    print_info "Enable only if you need GPU/PCIe passthrough"
 }
 
 check_virt_manager() {
@@ -436,19 +476,28 @@ install_packages() {
             ;;
         debian|ubuntu)
             print_info "Distribution: Debian/Ubuntu"
-            packages='qemu-system-x86 libvirt-daemon-system virtinst virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools libosinfo-bin tuned'
+            packages='qemu-system-x86 libvirt-daemon-system virtinst virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools tuned'
             for pkg in $packages; do
                 if install_if_missing "$pkg"; then
                     to_install="$to_install $pkg"
                 fi
             done
             
+            # libosinfo-bin may not exist on all Ubuntu versions
+            if install_if_missing "libosinfo-bin" 2>/dev/null; then
+                to_install="$to_install libosinfo-bin"
+            fi
+            
             if [ -n "$to_install" ]; then
                 echo ''
                 print_info "Updating package lists..."
-                sudo apt update -qq
+                if ! sudo apt update -qq 2>/dev/null; then
+                    print_warning "apt update failed - continuing anyway"
+                fi
                 print_info "Installing:${to_install}"
-                sudo apt install -y $to_install
+                if ! sudo apt install -y $to_install 2>&1 | grep -v "^$"; then
+                    print_warning "Some packages may have failed to install"
+                fi
                 need_reboot "New virtualization packages installed"
             else
                 print_success "All packages already installed!"
@@ -708,14 +757,40 @@ setup_network_bridge() {
     
     print_success "Using interface: $bridge_iface"
     
-    print_info "Creating bridge 'bridge0'..."
-    sudo nmcli connection add type bridge con-name bridge0 ifname bridge0 2>/dev/null || \
-        print_skip "Bridge may already exist"
+    # Check if bridge already exists
+    if nmcli connection show 2>/dev/null | grep -q "^bridge0"; then
+        print_warning "Bridge 'bridge0' already exists"
+        bridge_exists=''
+        ask_no "Recreate bridge0?" bridge_exists
+        case "$bridge_exists" in
+            Y|y)
+                print_info "Deleting existing bridge..."
+                sudo nmcli connection delete bridge0 2>/dev/null || true
+                ;;
+            *)
+                print_skip "Using existing bridge"
+                ;;
+        esac
+    fi
     
-    print_info "Adding $bridge_iface to bridge..."
-    sudo nmcli connection add type ethernet slave-type bridge \
-        con-name "Bridge to $bridge_iface" \
-        ifname "$bridge_iface" master bridge0 2>/dev/null || true
+    if ! nmcli connection show 2>/dev/null | grep -q "^bridge0"; then
+        print_info "Creating bridge 'bridge0'..."
+        if ! sudo nmcli connection add type bridge con-name bridge0 ifname bridge0 2>/dev/null; then
+            print_error "Failed to create bridge"
+            return
+        fi
+    fi
+    
+    # Check if slave connection exists
+    slave_name="Bridge to $bridge_iface"
+    if ! nmcli connection show 2>/dev/null | grep -q "$slave_name"; then
+        print_info "Adding $bridge_iface to bridge..."
+        if ! sudo nmcli connection add type ethernet slave-type bridge \
+            con-name "$slave_name" \
+            ifname "$bridge_iface" master bridge0 2>/dev/null; then
+            print_warning "Could not add interface to bridge"
+        fi
+    fi
     
     use_dhcp=''
     ask_yes "Use DHCP for bridge IP?" use_dhcp
@@ -741,7 +816,7 @@ setup_network_bridge() {
                 return
             fi
             
-            if ! echo "$bridge_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+            if ! echo "$bridge_ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'; then
                 print_warning "IP format may be invalid (expected: 192.168.1.100/24)"
             fi
             
@@ -976,10 +1051,26 @@ parse_args() {
     done
 }
 
+check_sudo() {
+    if ! command -v sudo >/dev/null 2>&1; then
+        if [ "$(id -u)" -ne 0 ]; then
+            print_error "sudo not found and not running as root"
+            print_info "This script requires sudo for package installation"
+            exit 1
+        fi
+    else
+        # Test if sudo works (cache timeout)
+        if ! sudo -n true 2>/dev/null; then
+            print_info "You may be prompted for sudo password"
+        fi
+    fi
+}
+
 main() {
     parse_args "$@"
     
     init_shell
+    check_sudo
     
     if [ "$(id -u)" -eq 0 ]; then
         echo ''
