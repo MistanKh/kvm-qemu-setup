@@ -883,6 +883,14 @@ EOF
     print_info "VMs can now use 'nwbridge' network"
 }
 
+setup_default_network() {
+    echo ''
+    print_info "Starting and enabling default libvirt network..."
+    sudo virsh net-start default 2>/dev/null || true
+    sudo virsh net-autostart default 2>/dev/null || true
+    print_success "Default network configured"
+}
+
 setup_virtio_windows() {
     echo ''
     win_guests=''
@@ -1149,6 +1157,7 @@ main() {
     setup_permissions
     setup_acl
     setup_network_bridge
+    setup_default_network
     setup_virtio_windows
     show_iommu_guide
     show_next_steps
