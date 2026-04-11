@@ -203,39 +203,114 @@ check_virt_manager() {
     fi
 }
 
+check_package_installed() {
+    local pkg="$1"
+    case "$OS" in
+        arch)
+            pacman -Q "$pkg" &>/dev/null
+            ;;
+        debian|ubuntu)
+            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"
+            ;;
+        fedora|rhel)
+            rpm -q "$pkg" &>/dev/null
+            ;;
+    esac
+}
+
+install_if_missing() {
+    local pkg="$1"
+    if check_package_installed "$pkg"; then
+        echo -e "  ${GREEN}[SKIP]${NC} $pkg (already installed)"
+        return 1
+    else
+        echo -e "  ${YELLOW}[INSTALL]${NC} $pkg"
+        return 0
+    fi
+}
+
 install_packages() {
     if ! $INSTALL_QEMU; then
+        echo -e "\n${BLUE}=== Skipping Package Installation ===${NC}"
+        echo "virt-manager already installed. To update, run this script with --reinstall"
         return
     fi
     
     echo -e "\n${BLUE}=== Installing KVM and Virtualization Packages ===${NC}"
     
+    local to_install=()
+    
     case "$OS" in
         arch)
-            echo "Installing packages for Arch Linux..."
-            sudo pacman -S --noconfirm qemu-full libvirt virt-install virt-manager virt-viewer \
-                edk2-ovmf swtpm qemu-img guestfs-tools libosinfo
-            if command -v yay &> /dev/null; then
-                yay -S --noconfirm tuned
+            local packages=(qemu-full libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools libosinfo)
+            echo "Checking packages for Arch Linux..."
+            for pkg in "${packages[@]}"; do
+                if install_if_missing "$pkg"; then
+                    to_install+=("$pkg")
+                fi
+            done
+            
+            if [[ ${#to_install[@]} -gt 0 ]]; then
+                echo "Installing: ${to_install[*]}"
+                sudo pacman -S --noconfirm "${to_install[@]}"
             else
-                echo -e "${YELLOW}tuned not in official repos. Install manually if needed.${NC}"
+                echo -e "${GREEN}All packages already installed!${NC}"
+            fi
+            
+            if command -v yay &> /dev/null; then
+                if install_if_missing "tuned"; then
+                    yay -S --noconfirm tuned
+                fi
+            else
+                echo -e "${YELLOW}tuned not in AUR. Skipping.${NC}"
             fi
             ;;
         debian|ubuntu)
-            echo "Installing packages for Debian/Ubuntu..."
-            sudo apt update
-            sudo apt install -y qemu-system-x86 libvirt-daemon-system virtinst \
-                virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools \
-                libosinfo-bin tuned
+            local packages=(qemu-system-x86 libvirt-daemon-system virtinst virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools libosinfo-bin tuned)
+            echo "Checking packages for Debian/Ubuntu..."
+            for pkg in "${packages[@]}"; do
+                if install_if_missing "$pkg"; then
+                    to_install+=("$pkg")
+                fi
+            done
+            
+            if [[ ${#to_install[@]} -gt 0 ]]; then
+                echo "Installing: ${to_install[*]}"
+                sudo apt update
+                sudo apt install -y "${to_install[@]}"
+            else
+                echo -e "${GREEN}All packages already installed!${NC}"
+            fi
             ;;
         fedora|rhel)
-            echo "Installing packages for Fedora/RHEL..."
-            sudo dnf install -y qemu-kvm libvirt virt-install virt-manager virt-viewer \
-                edk2-ovmf swtpm qemu-img guestfs-tools libosinfo tuned
+            local packages=(qemu-kvm libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools libosinfo tuned)
+            echo "Checking packages for Fedora/RHEL..."
+            for pkg in "${packages[@]}"; do
+                if install_if_missing "$pkg"; then
+                    to_install+=("$pkg")
+                fi
+            done
+            
+            if [[ ${#to_install[@]} -gt 0 ]]; then
+                echo "Installing: ${to_install[*]}"
+                sudo dnf install -y "${to_install[@]}"
+            else
+                echo -e "${GREEN}All packages already installed!${NC}"
+            fi
             ;;
     esac
     
-    echo -e "${GREEN}Packages installed successfully!${NC}"
+    echo -e "${GREEN}Package check complete!${NC}"
+}
+
+is_service_active() {
+    local svc="$1"
+    systemctl is-active "$svc" &>/dev/null
+}
+
+is_service_enabled() {
+    local svc="$1"
+    systemctl is-enabled "$svc" &>/dev/null
 }
 
 enable_libvirt_daemons() {
@@ -244,17 +319,35 @@ enable_libvirt_daemons() {
     case "$OS" in
         arch|fedora|rhel)
             for drv in qemu interface network nodedev nwfilter secret storage; do
-                echo "Enabling virt${drv}d.service..."
-                sudo systemctl enable --now "virt${drv}d.service" 2>/dev/null || \
-                sudo systemctl enable --now "virt${drv}d.socket" 2>/dev/null || true
+                local svc="virt${drv}d.service"
+                local socket="virt${drv}d.socket"
+                
+                if is_service_active "$svc" || is_service_active "$socket"; then
+                    echo -e "  ${GREEN}[SKIP]${NC} $drv (already active)"
+                elif is_service_enabled "$svc"; then
+                    echo -e "  ${YELLOW}[START]${NC} $drv (enabled but not active)"
+                    sudo systemctl start "$svc" 2>/dev/null || sudo systemctl start "$socket" 2>/dev/null || true
+                else
+                    echo -e "  ${YELLOW}[ENABLE]${NC} $drv"
+                    sudo systemctl enable --now "$svc" 2>/dev/null || \
+                    sudo systemctl enable --now "$socket" 2>/dev/null || true
+                fi
             done
             ;;
         debian|ubuntu)
-            sudo systemctl enable --now libvirtd.service
+            if is_service_active "libvirtd.service"; then
+                echo -e "  ${GREEN}[SKIP]${NC} libvirtd (already active)"
+            elif is_service_enabled "libvirtd.service"; then
+                echo -e "  ${YELLOW}[START]${NC} libvirtd (enabled but not active)"
+                sudo systemctl start libvirtd.service
+            else
+                echo -e "  ${YELLOW}[ENABLE]${NC} libvirtd"
+                sudo systemctl enable --now libvirtd.service
+            fi
             ;;
     esac
     
-    echo -e "${GREEN}Libvirt daemons enabled!${NC}"
+    echo -e "${GREEN}Libvirt daemons configured!${NC}"
 }
 
 validate_host() {
