@@ -53,25 +53,27 @@ init_shell() {
 
 print_banner() {
     echo ''
-    printf '[0;36m'
-    printf '%s\n' '╔═══════════════════════════════════════════════════════════╗'
-    printf '%s\n' '║                                                           ║'
-    printf '%s\n' '║   ███╗   ██╗███████╗ ██████╗ ███╗   ██╗               ║'
-    printf '%s\n' '║   ████╗  ██║██╔════╝██╔═══██╗████╗  ██║               ║'
-    printf '%s\n' '║   ██╔██╗ ██║█████╗  ██║   ██║██╔██╗ ██║               ║'
-    printf '%s\n' '║   ██║╚██╗██║██╔══╝  ██║   ██║██║╚██╗██║               ║'
-    printf '%s\n' '║   ██║ ╚████║███████╗╚██████╔╝██║ ╚████║               ║'
-    printf '%s\n' '║   ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝               ║'
-    printf '%s\n' '║                                                           ║'
-    printf '%s\n' '║   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀               ║'
-    printf '%s\n' '║                                                           ║'
-    printf '[2m%s[0m\n' '║   Automated QEMU/KVM Installation & Configuration       ║'
-    printf '%s\n' '║                                                           ║'
-    printf '%s\n' '╚═══════════════════════════════════════════════════════════╝'
-    printf '[0m'
+    printf '\033[0;36m'
+    printf '%s\n' '╔═══════════════════════════════════════════════════════════════╗'
+    printf '%s\n' '║                                                               ║'
+    printf '%s\n' '║   ██╗   ██╗ █████╗ ██╗   ██╗██╗  ██╗                     ║'
+    printf '%s\n' '║   ██║   ██║██╔══██╗██║   ██║██║ ██╔╝                     ║'
+    printf '%s\n' '║   ██║   ██║███████║██║   ██║█████╔╝                      ║'
+    printf '%s\n' '║   ╚██╗ ██╔╝██╔══██║██║   ██║██╔═██╗                      ║'
+    printf '%s\n' '║    ╚████╔╝ ██║  ██║╚██████╔╝██║  ██╗                     ║'
+    printf '%s\n' '║     ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝                     ║'
+    printf '%s\n' '║                                                               ║'
+    printf '%s\n' '║   ═════════════════════════════════════════════════════════   ║'
+    printf '%s\n' '║                                                               ║'
+    printf '\033[2m%s\033[0m\n' '║             QEMU/KVM Setup for Linux Systems                   ║'
+    printf '%s\n' '║                                                               ║'
+    printf '033[2m%s033[0m\n' '║             by Mistan Khomdram | github.com/MistanKh         ║'
+    printf '%s\n' '║                                                               ║'
+    printf '%s\n' '╚═══════════════════════════════════════════════════════════════╝'
+    printf '\033[0m'
     echo ''
-    printf '[2m   Based on: https://sysguides.com/install-kvm-on-linux[0m\n'
-    printf '[2m   Created with: https://opencode.ai[0m\n'
+    printf '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m\n'
+    printf '\033[2m   Created with: https://opencode.ai\033[0m\n'
     echo ''
 }
 
@@ -996,10 +998,7 @@ show_reboot_prompt() {
     fi
     
     printf '%s\n' '  │'
-    printf '\033[1;33m  │  \033[2mReboot ensures:\033[0m\n'
-    printf '\033[1;33m  │  \033[2m  • KVM modules load properly\033[0m\n'
-    printf '\033[1;33m  │  \033[2m  • Services start in correct order\033[0m\n'
-    printf '\033[1;33m  │  \033[2m  • No intermittent VM issues\033[0m\n'
+    printf '\033[1;33m  │  \033[2mReboot ensures all services start correctly\033[0m'
     printf '%s\n' '  │'
     printf '%s\n' '  └──────────────────────────────────────────────────────────────┘'
     printf '\033[0m'
@@ -1011,38 +1010,32 @@ show_reboot_prompt() {
     case "$reboot_now" in
         Y|y)
             echo ''
-            printf '\033[0;34m  ℹ\033[0m Rebooting in 10 seconds... Press Ctrl+C to cancel\n'
-            for count in 10 9 8 7 6 5 4 3 2 1; do
-                printf '\033[0;34m  ℹ\033[0m %d\r' "$count"
-                sleep 1
-            done
-            echo ''
+            print_info "Rebooting now..."
             sudo reboot
             ;;
         *)
             echo ''
-            print_warning "Remember to reboot later for optimal performance!"
-            print_info "Run 'newgrp libvirt' to apply group changes without logout"
+            print_warning "Remember to reboot later for full functionality!"
             ;;
     esac
 }
 
 show_next_steps() {
     echo ''
-    printf '[0;36m%s[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-    printf '[0;32m[1m  ✓ Installation Complete![0m\n'
-    printf '[0;36m%s[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    printf '\033[0;32m\033[1m  Installation Complete!\033[0m\n'
+    printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
     echo ''
     
     if [ "$REBOOT_NEEDED" != "true" ]; then
-        printf '[0;32m[1m  Everything is configured and ready![0m\n'
+        printf '\033[0;32m\033[1m  Everything is configured and ready!\033[0m\n'
         echo ''
     fi
     
-    printf '[1m  Quick Start:[0m\n'
-    printf '[2m  1. virt-manager[0m        - Launch VM Manager\n'
-    printf '[2m  2. virsh net-list[0m       - View networks\n'
-    printf '[2m  3. virt-host-validate[0m   - Verify setup\n'
+    printf '\033[1m  Quick Start:\033[0m\n'
+    printf '\033[2m  1. virt-manager\033[0m        - Launch VM Manager\n'
+    printf '\033[2m  2. virsh net-list\033[0m       - View networks\n'
+    printf '\033[2m  3. virt-host-validate\033[0m   - Verify setup\n'
     echo ''
     
     if [ "$REBOOT_NEEDED" = "true" ]; then
@@ -1050,8 +1043,9 @@ show_next_steps() {
     fi
     
     echo ''
-    printf '[2m  Documentation: https://sysguides.com/install-kvm-on-linux[0m\n'
-    printf '[2m  Script created with: https://opencode.ai[0m\n'
+    printf '\033[2m  Documentation: https://sysguides.com/install-kvm-on-linux\033[0m\n'
+    printf '\033[2m  Author: Mistan Khomdram | https://github.com/MistanKh\033[0m\n'
+    printf '\033[2m  Created with: https://opencode.ai\033[0m\n'
     echo ''
 }
 
