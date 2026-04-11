@@ -995,7 +995,13 @@ show_reboot_prompt() {
         Y|y)
             echo ''
             print_info "Rebooting in 10 seconds... Press Ctrl+C to cancel"
-            sleep 10
+            count=10
+            while [ $count -gt 0 ]; do
+                printf '\033[0;34m  ℹ\033[0m %d... \r' "$count"
+                sleep 1
+                count=$((count - 1))
+            done
+            echo ''
             sudo reboot
             ;;
         *)
@@ -1077,17 +1083,30 @@ parse_args() {
 check_sudo() {
     if ! command -v sudo >/dev/null 2>&1; then
         if [ "$(id -u)" -ne 0 ]; then
-            print_error "sudo not found and not running as root"
-            print_info "This script requires sudo for package installation"
+            printf '\033[0;31m  ✗\033[0m sudo not found and not running as root\n'
+            printf '\033[0;34m  ℹ\033[0m This script requires sudo for package installation\n'
             exit 1
         fi
     else
-        # Test if sudo works (cache timeout)
-        if ! sudo -n true 2>/dev/null; then
-            print_info "You may be prompted for sudo password"
+        # Cache sudo credentials upfront (asks password once)
+        printf '\033[0;34m  ℹ\033[0m Requesting sudo access...\n'
+        if ! sudo -v 2>/dev/null; then
+            printf '\033[0;31m  ✗\033[0m Failed to get sudo access\n'
+            exit 1
         fi
+        printf '\033[0;32m  ✓\033[0m sudo access granted\n'
     fi
 }
+
+cleanup() {
+    echo ''
+    echo ''
+    printf '\033[0;33m  ⚠\033[0m Script interrupted by user\n'
+    printf '\033[0;34m  ℹ\033[0m Partial changes may have been made\n'
+    exit 130
+}
+
+trap cleanup INT
 
 main() {
     parse_args "$@"
@@ -1099,7 +1118,6 @@ main() {
         echo ''
         print_warning "Running as root - group changes won't take effect for root"
         print_info "Run as normal user with sudo for proper configuration"
-        print_info "Or use 'sudo -E $0' to preserve environment"
         echo ''
     fi
     
