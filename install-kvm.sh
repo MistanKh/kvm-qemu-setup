@@ -5,11 +5,52 @@
 
 set -e
 
+REBOOT_NEEDED=false
+REBOOT_REASONS=()
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+BOLD='\033[1m'
 NC='\033[0m'
+
+need_reboot() {
+    local reason="$1"
+    if [[ ! " ${REBOOT_REASONS[*]} " =~ " ${reason} " ]]; then
+        REBOOT_REASONS+=("$reason")
+    fi
+    REBOOT_NEEDED=true
+}
+
+check_reboot_required() {
+    local libvirt_changed=false
+    local kvm_loaded=false
+    
+    if groups "$USER" 2>/dev/null | grep -qw libvirt; then
+        if [[ "$(id -gn)" != "libvirt" ]]; then
+            if ! grep -q "libvirt" /proc/$$/status 2>/dev/null; then
+                libvirt_changed=true
+            fi
+        fi
+    fi
+    
+    if lsmod | grep -q "^kvm"; then
+        kvm_loaded=true
+    fi
+    
+    if $kvm_loaded; then
+        if pgrep -x "libvirtd" >/dev/null 2>&1; then
+            return 1
+        fi
+    fi
+    
+    if $libvirt_changed; then
+        return 1
+    fi
+    
+    return 0
+}
 
 detect_os() {
     if [[ -f /etc/arch-release ]]; then
@@ -253,6 +294,7 @@ install_packages() {
             if [[ ${#to_install[@]} -gt 0 ]]; then
                 echo "Installing: ${to_install[*]}"
                 sudo pacman -S --noconfirm "${to_install[@]}"
+                need_reboot "New virtualization packages installed"
             else
                 echo -e "${GREEN}All packages already installed!${NC}"
             fi
@@ -278,6 +320,7 @@ install_packages() {
                 echo "Installing: ${to_install[*]}"
                 sudo apt update
                 sudo apt install -y "${to_install[@]}"
+                need_reboot "New virtualization packages installed"
             else
                 echo -e "${GREEN}All packages already installed!${NC}"
             fi
@@ -294,6 +337,7 @@ install_packages() {
             if [[ ${#to_install[@]} -gt 0 ]]; then
                 echo "Installing: ${to_install[*]}"
                 sudo dnf install -y "${to_install[@]}"
+                need_reboot "New virtualization packages installed"
             else
                 echo -e "${GREEN}All packages already installed!${NC}"
             fi
@@ -316,6 +360,8 @@ is_service_enabled() {
 enable_libvirt_daemons() {
     echo -e "\n${BLUE}=== Enabling Libvirt Daemons ===${NC}"
     
+    local newly_enabled=false
+    
     case "$OS" in
         arch|fedora|rhel)
             for drv in qemu interface network nodedev nwfilter secret storage; do
@@ -331,6 +377,7 @@ enable_libvirt_daemons() {
                     echo -e "  ${YELLOW}[ENABLE]${NC} $drv"
                     sudo systemctl enable --now "$svc" 2>/dev/null || \
                     sudo systemctl enable --now "$socket" 2>/dev/null || true
+                    newly_enabled=true
                 fi
             done
             ;;
@@ -343,9 +390,14 @@ enable_libvirt_daemons() {
             else
                 echo -e "  ${YELLOW}[ENABLE]${NC} libvirtd"
                 sudo systemctl enable --now libvirtd.service
+                newly_enabled=true
             fi
             ;;
     esac
+    
+    if $newly_enabled; then
+        need_reboot "New libvirt daemons enabled (recommended for proper initialization)"
+    fi
     
     echo -e "${GREEN}Libvirt daemons configured!${NC}"
 }
@@ -612,24 +664,64 @@ show_iommu_guide() {
     fi
 }
 
+show_reboot_summary() {
+    echo -e "\n${BLUE}========================================${NC}"
+    echo -e "${YELLOW}${BOLD}=== Reboot Recommendation ===${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    
+    if [[ ${#REBOOT_REASONS[@]} -gt 0 ]]; then
+        echo ""
+        echo -e "${YELLOW}A reboot is recommended for the following reasons:${NC}"
+        for reason in "${REBOOT_REASONS[@]}"; do
+            echo -e "  ${YELLOW}•${NC} $reason"
+        done
+        echo ""
+        echo "Reboot benefits:"
+        echo "  ✓ Ensures all KVM kernel modules are properly loaded"
+        echo "  ✓ Libvirt daemons start with clean state"
+        echo "  ✓ Network bridge configurations take full effect"
+        echo "  ✓ All virtualization features initialized correctly"
+        echo "  ✓ Prevents intermittent VM issues"
+        echo ""
+        read -p "Reboot now? (y/N): " REBOOT_NOW
+        if [[ "$REBOOT_NOW" =~ ^[Yy]$ ]]; then
+            echo "Rebooting in 10 seconds... Press Ctrl+C to cancel"
+            sleep 10
+            sudo reboot
+        else
+            echo ""
+            echo -e "${YELLOW}Remember to reboot later for optimal performance!${NC}"
+        fi
+    else
+        echo -e "${GREEN}No reboot needed. Everything is already configured.${NC}"
+    fi
+}
+
 show_next_steps() {
     echo -e "\n${BLUE}========================================${NC}"
     echo -e "${GREEN}=== Installation Complete! ===${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo ""
-    echo "Next steps:"
-    echo "  1. Log out and back in for group permissions to take effect"
-    echo "  2. Run 'virt-manager' to start the Virtual Machine Manager"
-    echo "  3. Run 'sudo virt-host-validate qemu' to verify setup"
+    
+    if ! $REBOOT_NEEDED; then
+        echo -e "${GREEN}All components are already properly configured!${NC}"
+        echo ""
+    fi
+    
+    echo "Quick start:"
+    echo "  1. Run 'virt-manager' to start the Virtual Machine Manager"
+    echo "  2. Run 'sudo virt-host-validate qemu' to verify setup"
+    echo "  3. Run 'virsh net-list' to see available networks"
     echo ""
     echo "Useful commands:"
-    echo "  - virsh list              : List running VMs"
     echo "  - virsh list --all        : List all VMs"
-    echo "  - virt-manager            : GUI VM manager"
-    echo "  - virt-install            : CLI VM creation"
+    echo "  - virt-viewer <vm-name>   : Connect to VM console"
+    echo "  - virt-install            : Create VM from CLI"
     echo ""
     echo "Documentation: https://sysguides.com/install-kvm-on-linux"
     echo ""
+    
+    show_reboot_summary
 }
 
 main() {
