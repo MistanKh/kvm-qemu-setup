@@ -495,22 +495,44 @@ enable_libvirt_daemons() {
         arch|fedora|rhel)
             for drv in qemu interface network nodedev nwfilter secret storage; do
                 svc="virt${drv}d.service"
-                socket="virt${drv}d.socket"
                 
-                if is_service_active "$svc" || is_service_active "$socket"; then
+                # Socket variants: base, read-only, admin
+                socket="virt${drv}d.socket"
+                socket_ro="virt${drv}d-ro.socket"
+                socket_admin="virt${drv}d-admin.socket"
+                
+                all_active=true
+                for s in "$socket" "$socket_ro" "$socket_admin"; do
+                    if ! is_service_active "$s" && ! is_service_active "$svc"; then
+                        all_active=false
+                        break
+                    fi
+                done
+                
+                if is_service_active "$svc" || [ "$all_active" = "true" ]; then
                     print_skip "virt${drv}d: already active"
                 elif is_service_enabled "$svc"; then
                     print_info "Starting virt${drv}d..."
-                    sudo systemctl start "$svc" >/dev/null 2>&1 || \
-                    sudo systemctl start "$socket" >/dev/null 2>&1 || true
+                    sudo systemctl start "$svc" >/dev/null 2>&1 || true
+                    for s in "$socket" "$socket_ro" "$socket_admin"; do
+                        sudo systemctl start "$s" >/dev/null 2>&1 || true
+                    done
                 else
                     print_info "Enabling virt${drv}d..."
                     if sudo systemctl enable --now "$svc" >/dev/null 2>&1; then
                         newly_enabled=true
-                    elif sudo systemctl enable --now "$socket" >/dev/null 2>&1; then
-                        newly_enabled=true
                     else
-                        print_warning "Failed to enable virt${drv}d"
+                        # Try sockets as fallback
+                        enabled_any=false
+                        for s in "$socket" "$socket_ro" "$socket_admin"; do
+                            if sudo systemctl enable --now "$s" >/dev/null 2>&1; then
+                                newly_enabled=true
+                                enabled_any=true
+                            fi
+                        done
+                        if [ "$enabled_any" = "false" ]; then
+                            print_warning "Failed to enable virt${drv}d"
+                        fi
                     fi
                 fi
             done
