@@ -8,15 +8,15 @@ SKIP_REBOOT=false
 FORCE_REINSTALL=false
 INSTALL_QEMU=true
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m'
+RED='[0;31m'
+GREEN='[0;32m'
+YELLOW='[1;33m'
+BLUE='[0;34m'
+CYAN='[0;36m'
+MAGENTA='[0;35m'
+BOLD='[1m'
+DIM='[2m'
+NC='[0m'
 
 is_bash() {
     [ -n "$BASH_VERSION" ]
@@ -53,7 +53,7 @@ init_shell() {
 
 print_banner() {
     echo ''
-    printf '\033[0;36m'
+    printf '[0;36m'
     printf '%s\n' '╔═══════════════════════════════════════════════════════════╗'
     printf '%s\n' '║                                                           ║'
     printf '%s\n' '║   ███╗   ██╗███████╗ ██████╗ ███╗   ██╗               ║'
@@ -65,13 +65,13 @@ print_banner() {
     printf '%s\n' '║                                                           ║'
     printf '%s\n' '║   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀               ║'
     printf '%s\n' '║                                                           ║'
-    printf '\033[2m%s\033[0m\n' '║   Automated QEMU/KVM Installation & Configuration       ║'
+    printf '[2m%s[0m\n' '║   Automated QEMU/KVM Installation & Configuration       ║'
     printf '%s\n' '║                                                           ║'
     printf '%s\n' '╚═══════════════════════════════════════════════════════════╝'
-    printf '\033[0m'
+    printf '[0m'
     echo ''
-    printf '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m\n'
-    printf '\033[2m   Created with: https://opencode.ai\033[0m\n'
+    printf '[2m   Based on: https://sysguides.com/install-kvm-on-linux[0m\n'
+    printf '[2m   Created with: https://opencode.ai[0m\n'
     echo ''
 }
 
@@ -81,28 +81,28 @@ print_step() {
     message=$3
     dashes=$(printf '%50s' | tr ' ' '-')
     echo ''
-    echo "\033[0;36m┌─\033[0m \033[1m${step}/${total}\033[0m ${message}\033[0m"
-    echo "\033[0;36m└─\033[0m \033[2m${dashes}\033[0m"
+    echo "[0;36m┌─[0m [1m${step}/${total}[0m ${message}[0m"
+    echo "[0;36m└─[0m [2m${dashes}[0m"
 }
 
 print_success() {
-    echo "\033[0;32m  ✓\033[0m $1"
+    echo "[0;32m  ✓[0m $1"
 }
 
 print_warning() {
-    echo "\033[1;33m  ⚠\033[0m $1"
+    echo "[1;33m  ⚠[0m $1"
 }
 
 print_error() {
-    echo "\033[0;31m  ✗\033[0m $1"
+    echo "[0;31m  ✗[0m $1"
 }
 
 print_info() {
-    echo "\033[0;34m  ℹ\033[0m $1"
+    echo "[0;34m  ℹ[0m $1"
 }
 
 print_skip() {
-    echo "\033[2m  ➜\033[0m $1"
+    echo "[2m  ➜[0m $1"
 }
 
 need_reboot() {
@@ -126,7 +126,7 @@ ask() {
     default=${2:-N}
     options=$3
     
-    printf '  \033[1m%s [%s]: \033[0m' "$prompt" "$options"
+    printf '  [1m%s [%s]: [0m' "$prompt" "$options"
     read answer
     
     if [ -z "$answer" ]; then
@@ -171,16 +171,16 @@ detect_os() {
     else
         echo ''
         print_error "Unsupported OS detected"
-        printf '\033[2m  This script supports:\033[0m\n'
-        printf '\033[2m  • Arch Linux\033[0m\n'
-        printf '\033[2m  • Debian\033[0m\n'
-        printf '\033[2m  • Ubuntu\033[0m\n'
-        printf '\033[2m  • Fedora\033[0m\n'
-        printf '\033[2m  • RHEL-based (Rocky, Alma, CentOS)\033[0m\n'
+        printf '[2m  This script supports:[0m\n'
+        printf '[2m  • Arch Linux[0m\n'
+        printf '[2m  • Debian[0m\n'
+        printf '[2m  • Ubuntu[0m\n'
+        printf '[2m  • Fedora[0m\n'
+        printf '[2m  • RHEL-based (Rocky, Alma, CentOS)[0m\n'
         exit 1
     fi
     
-    print_success "Detected: \033[1m${OS_NAME}\033[0m"
+    print_success "Detected: [1m${OS_NAME}[0m"
 }
 
 detect_shell() {
@@ -212,7 +212,7 @@ detect_shell() {
             ;;
     esac
     
-    print_success "Shell: \033[1m${SHELL_NAME}\033[0m"
+    print_success "Shell: [1m${SHELL_NAME}[0m"
     print_info "Config: ${SHELL_RC}"
 }
 
@@ -269,11 +269,11 @@ check_virtualization() {
     
     case "$VIRT_SUPPORT" in
         *VT-x*)
-            print_success "Intel VT-x: \033[1mENABLED\033[0m"
+            print_success "Intel VT-x: [1mENABLED[0m"
             print_info "Hardware virtualization ready for Intel CPUs"
             ;;
         *AMD-V*)
-            print_success "AMD-V: \033[1mENABLED\033[0m"
+            print_success "AMD-V: [1mENABLED[0m"
             print_info "Hardware virtualization ready for AMD CPUs"
             ;;
         "")
@@ -281,15 +281,15 @@ check_virtualization() {
                 print_error "Hardware virtualization: DISABLED or NOT SUPPORTED"
                 echo ''
                 print_warning "Please enable virtualization in BIOS/UEFI:"
-                printf '\033[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)\033[0m\n'
-                printf '\033[2m  • AMD CPUs: Enable AMD-V (SVM Mode)\033[0m\n'
+                printf '[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)[0m\n'
+                printf '[2m  • AMD CPUs: Enable AMD-V (SVM Mode)[0m\n'
                 echo ''
                 
                 continue_prompt=''
                 ask_no "Continue anyway?" continue_prompt
                 case "$continue_prompt" in
                     Y|y) ;;
-                    *) echo -e "\n\033[0;31mExiting...\033[0m"; exit 1 ;;
+                    *) echo -e "\n[0;31mExiting...[0m"; exit 1 ;;
                 esac
             else
                 print_skip "Could not determine CPU virtualization status"
@@ -326,7 +326,7 @@ check_kvm_modules() {
         *Intel*|*GenuineIntel*)
             if modinfo kvm-intel >/dev/null 2>&1; then
                 if lsmod | grep -q "^kvm-intel"; then
-                    print_success "kvm-intel module: \033[1mLOADED\033[0m"
+                    print_success "kvm-intel module: [1mLOADED[0m"
                 else
                     print_warning "kvm-intel module: Available but not loaded"
                     print_info "Attempting to load module..."
@@ -342,7 +342,7 @@ check_kvm_modules() {
         *AMD*|*AuthenticAMD*)
             if modinfo kvm-amd >/dev/null 2>&1; then
                 if lsmod | grep -q "^kvm-amd"; then
-                    print_success "kvm-amd module: \033[1mLOADED\033[0m"
+                    print_success "kvm-amd module: [1mLOADED[0m"
                 else
                     print_warning "kvm-amd module: Available but not loaded"
                     print_info "Attempting to load module..."
@@ -369,7 +369,7 @@ check_iommu() {
     
     # Check kernel cmdline first (always accessible)
     if [ -f /proc/cmdline ] && grep -q "intel_iommu=on\|amd_iommu=on\|iommu=on" /proc/cmdline; then
-        print_success "IOMMU: \033[1mENABLED\033[0m"
+        print_success "IOMMU: [1mENABLED[0m"
         IOMMU_ENABLED=true
         return
     fi
@@ -759,7 +759,7 @@ setup_network_bridge() {
     ip -brief link show 2>/dev/null | grep -v "lo\|virbr" || true
     
     bridge_iface=''
-    printf '  \033[1mEnter ethernet interface name\033[0m (e.g., enp0s3): '
+    printf '  [1mEnter ethernet interface name[0m (e.g., enp0s3): '
     read bridge_iface
     
     if [ -z "$bridge_iface" ]; then
@@ -821,11 +821,11 @@ setup_network_bridge() {
             bridge_ip=''
             gateway=''
             dns=''
-            printf '  \033[1mIP/CIDR\033[0m (e.g., 192.168.1.100/24): '
+            printf '  [1mIP/CIDR[0m (e.g., 192.168.1.100/24): '
             read bridge_ip
-            printf '  \033[1mGateway\033[0m: '
+            printf '  [1mGateway[0m: '
             read gateway
-            printf '  \033[1mDNS servers\033[0m (comma separated): '
+            printf '  [1mDNS servers[0m (comma separated): '
             read dns
             
             if [ -z "$bridge_ip" ] || [ -z "$gateway" ]; then
@@ -938,20 +938,20 @@ show_iommu_guide() {
             echo ''
             print_info "Edit /etc/default/grub:"
             case "$CPU_VENDOR" in
-                GenuineIntel) printf '\033[2m  GRUB_CMDLINE_LINUX="... intel_iommu=on iommu=pt"\033[0m\n' ;;
-                *) printf '\033[2m  GRUB_CMDLINE_LINUX="... iommu=pt"\033[0m\n' ;;
+                GenuineIntel) printf '[2m  GRUB_CMDLINE_LINUX="... intel_iommu=on iommu=pt"[0m\n' ;;
+                *) printf '[2m  GRUB_CMDLINE_LINUX="... iommu=pt"[0m\n' ;;
             esac
             echo ''
             print_info "Update GRUB:"
             case "$OS" in
-                arch) printf '\033[2m  sudo grub-mkconfig -o /boot/grub/grub.cfg\033[0m\n' ;;
-                debian|ubuntu) printf '\033[2m  sudo update-grub\033[0m\n' ;;
+                arch) printf '[2m  sudo grub-mkconfig -o /boot/grub/grub.cfg[0m\n' ;;
+                debian|ubuntu) printf '[2m  sudo update-grub[0m\n' ;;
                 fedora|rhel)
                     # Try new command first, fallback to old
                     if command -v grub2-mkconfig >/dev/null 2>&1; then
-                        printf '\033[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg\033[0m\n'
+                        printf '[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg[0m\n'
                     else
-                        printf '\033[2m  sudo grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg\033[0m\n'
+                        printf '[2m  sudo grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg[0m\n'
                     fi
                     ;;
             esac
@@ -967,25 +967,25 @@ show_reboot_prompt() {
         return
     fi
     
-    printf '\033[1;33m'
+    printf '[1;33m'
     printf '%s\n' '  ┌─ Reboot Recommended ─────────────────────────────────────────┐'
     printf '%s\n' '  │'
     
     # Parse REBOOT_REASONS (format: "reason|reason|reason")
     if [ -n "$REBOOT_REASONS" ]; then
         echo "$REBOOT_REASONS" | tr '|' '\n' | while read -r reason; do
-            [ -n "$reason" ] && printf '\033[1;33m  │  • %s\033[0m\n' "$reason"
+            [ -n "$reason" ] && printf '[1;33m  │  • %s[0m\n' "$reason"
         done
     fi
     
     printf '%s\n' '  │'
-    printf '\033[1;33m  │  \033[2mReboot ensures:\033[0m\n'
-    printf '\033[1;33m  │  \033[2m  • KVM modules load properly\033[0m\n'
-    printf '\033[1;33m  │  \033[2m  • Services start in correct order\033[0m\n'
-    printf '\033[1;33m  │  \033[2m  • No intermittent VM issues\033[0m\n'
+    printf '[1;33m  │  [2mReboot ensures:[0m\n'
+    printf '[1;33m  │  [2m  • KVM modules load properly[0m\n'
+    printf '[1;33m  │  [2m  • Services start in correct order[0m\n'
+    printf '[1;33m  │  [2m  • No intermittent VM issues[0m\n'
     printf '%s\n' '  │'
     printf '%s\n' '  └──────────────────────────────────────────────────────────────┘'
-    printf '\033[0m'
+    printf '[0m'
     echo ''
     
     reboot_now=''
@@ -1008,20 +1008,20 @@ show_reboot_prompt() {
 
 show_next_steps() {
     echo ''
-    printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-    printf '\033[0;32m\033[1m  ✓ Installation Complete!\033[0m\n'
-    printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    printf '[0;36m%s[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    printf '[0;32m[1m  ✓ Installation Complete![0m\n'
+    printf '[0;36m%s[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
     echo ''
     
     if [ "$REBOOT_NEEDED" != "true" ]; then
-        printf '\033[0;32m\033[1m  Everything is configured and ready!\033[0m\n'
+        printf '[0;32m[1m  Everything is configured and ready![0m\n'
         echo ''
     fi
     
-    printf '\033[1m  Quick Start:\033[0m\n'
-    printf '\033[2m  1. virt-manager\033[0m        - Launch VM Manager\n'
-    printf '\033[2m  2. virsh net-list\033[0m       - View networks\n'
-    printf '\033[2m  3. virt-host-validate\033[0m   - Verify setup\n'
+    printf '[1m  Quick Start:[0m\n'
+    printf '[2m  1. virt-manager[0m        - Launch VM Manager\n'
+    printf '[2m  2. virsh net-list[0m       - View networks\n'
+    printf '[2m  3. virt-host-validate[0m   - Verify setup\n'
     echo ''
     
     if [ "$REBOOT_NEEDED" = "true" ]; then
@@ -1029,24 +1029,24 @@ show_next_steps() {
     fi
     
     echo ''
-    printf '\033[2m  Documentation: https://sysguides.com/install-kvm-on-linux\033[0m\n'
-    printf '\033[2m  Script created with: https://opencode.ai\033[0m\n'
+    printf '[2m  Documentation: https://sysguides.com/install-kvm-on-linux[0m\n'
+    printf '[2m  Script created with: https://opencode.ai[0m\n'
     echo ''
 }
 
 show_help() {
-    echo "\033[1mKVM Setup Script\033[0m - Automated QEMU/KVM installation"
+    echo "[1mKVM Setup Script[0m - Automated QEMU/KVM installation"
     echo ''
-    echo "\033[1mUsage:\033[0m"
+    echo "[1mUsage:[0m"
     echo "  $0 [OPTIONS]"
     echo ''
-    echo "\033[1mOptions:\033[0m"
-    echo '\033[0;32m  --reinstall\033[0m       Force reinstall packages even if installed'
-    echo '\033[0;32m  --skip-reboot\033[0m    Skip reboot prompt and checks'
-    echo '\033[0;32m  --help\033[0m           Show this help message'
-    echo '\033[0;32m  --version\033[0m        Show version info'
+    echo "[1mOptions:[0m"
+    echo '[0;32m  --reinstall[0m       Force reinstall packages even if installed'
+    echo '[0;32m  --skip-reboot[0m    Skip reboot prompt and checks'
+    echo '[0;32m  --help[0m           Show this help message'
+    echo '[0;32m  --version[0m        Show version info'
     echo ''
-    echo "\033[1mExamples:\033[0m"
+    echo "[1mExamples:[0m"
     echo "  $0                  # Run interactive setup"
     echo "  $0 --reinstall       # Force reinstall packages"
     echo "  $0 --skip-reboot     # Skip reboot prompt"
@@ -1066,7 +1066,7 @@ parse_args() {
             --help|-h) show_help; exit 0 ;;
             --version|-v) show_version; exit 0 ;;
             *)
-                echo -e "\033[0;31mUnknown option: $1\033[0m"
+                echo -e "[0;31mUnknown option: $1[0m"
                 show_help
                 exit 1
                 ;;
