@@ -54,15 +54,15 @@ init_shell() {
 print_banner() {
     echo ''
     printf '\033[0;36m'
-    printf '%s\n' '╔════════════════════════════════════════════════════════════╗'
-    printf '%s\n' '║                                                            ║'
-    printf '%s\n' '║              QEMU/KVM Setup Script                            ║'
-    printf '%s\n' '║                                                            ║'
-    printf '%s\n' '╠════════════════════════════════════════════════════════════╣'
-    printf '%s\n' '║                                                            ║'
-    printf '%s\n' '║       by Mistan Khomdram | github.com/MistanKh            ║'
-    printf '%s\n' '║                                                            ║'
-    printf '%s\n' '╚════════════════════════════════════════════════════════════╝'
+    printf '%s\n' '╔══════════════════════════════════════════════════════════╗'
+    printf '%s\n' '║                                                          ║'
+    printf '%s\n' '║                  QEMU/KVM Setup Script                   ║'
+    printf '%s\n' '║                                                          ║'
+    printf '%s\n' '╠══════════════════════════════════════════════════════════╣'
+    printf '%s\n' '║                                                          ║'
+    printf '%s\n' '║            by Mistan Khomdram | github.com/MistanKh     ║'
+    printf '%s\n' '║                                                          ║'
+    printf '%s\n' '╚══════════════════════════════════════════════════════════╝'
     printf '\033[0m'
     echo ''
     printf '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m\n'
@@ -1054,22 +1054,27 @@ show_next_steps() {
 }
 
 show_help() {
-    echo "[1mKVM Setup Script[0m - Automated QEMU/KVM installation"
+    echo "QEMU/KVM Setup Script - Automated installation"
     echo ''
-    echo "[1mUsage:[0m"
+    echo "Usage:"
     echo "  $0 [OPTIONS]"
     echo ''
-    echo "[1mOptions:[0m"
-    echo '[0;32m  --reinstall[0m       Force reinstall packages even if installed'
-    echo '[0;32m  --skip-reboot[0m    Skip reboot prompt and checks'
-    echo '[0;32m  --help[0m           Show this help message'
-    echo '[0;32m  --version[0m        Show version info'
+    echo "Options:"
+    echo '  --reinstall       Force reinstall packages even if installed'
+    echo '  --skip-reboot    Skip reboot prompt and checks'
+    echo '  --help           Show this help message'
+    echo '  --version        Show version info'
     echo ''
-    echo "[1mExamples:[0m"
+    echo "Examples:"
     echo "  $0                  # Run interactive setup"
     echo "  $0 --reinstall       # Force reinstall packages"
     echo "  $0 --skip-reboot     # Skip reboot prompt"
     echo ''
+}
+
+show_version() {
+    echo "QEMU/KVM Setup Script v1.0.0"
+    echo "Based on: https://sysguides.com/install-kvm-on-linux"
 }
 
 show_version() {
