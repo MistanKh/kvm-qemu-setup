@@ -899,16 +899,31 @@ setup_iptables_backend() {
         nftables_installed=true
     fi
     
+    # Check if network.conf already exists
+    network_conf="/etc/libvirt/network.conf"
+    
     if [ "$nftables_installed" = "true" ] && [ "$iptables_installed" = "false" ]; then
         print_info "nftables detected, configuring libvirt to use iptables backend..."
-        
-        # Create or modify libvirt network.conf
         sudo mkdir -p /etc/libvirt
-        sudo tee /etc/libvirt/network.conf > /dev/null << 'EOF'
+        
+        if [ -f "$network_conf" ]; then
+            # File exists - check if firewall_backend line is present
+            if grep -q "^firewall_backend" "$network_conf" 2>/dev/null; then
+                # Replace existing firewall_backend line
+                sudo sed -i 's/^firewall_backend.*/firewall_backend = "iptables"/' "$network_conf"
+                print_success "Updated firewall_backend in $network_conf"
+            else
+                # Append the line
+                echo 'firewall_backend = "iptables"' | sudo tee -a "$network_conf" > /dev/null
+                print_success "Added firewall_backend to $network_conf"
+            fi
+        else
+            # File doesn't exist - create it
+            sudo tee "$network_conf" > /dev/null << 'EOF'
 firewall_backend = "iptables"
 EOF
-        
-        print_success "Libvirt configured to use iptables backend"
+            print_success "Created $network_conf"
+        fi
     elif [ "$iptables_installed" = "true" ]; then
         print_skip "iptables already available"
     else
@@ -927,13 +942,22 @@ EOF
                 ;;
         esac
         
-        # Configure libvirt to use iptables backend
         sudo mkdir -p /etc/libvirt
-        sudo tee /etc/libvirt/network.conf > /dev/null << 'EOF'
+        
+        if [ -f "$network_conf" ]; then
+            if grep -q "^firewall_backend" "$network_conf" 2>/dev/null; then
+                sudo sed -i 's/^firewall_backend.*/firewall_backend = "iptables"/' "$network_conf"
+                print_success "Updated firewall_backend in $network_conf"
+            else
+                echo 'firewall_backend = "iptables"' | sudo tee -a "$network_conf" > /dev/null
+                print_success "Added firewall_backend to $network_conf"
+            fi
+        else
+            sudo tee "$network_conf" > /dev/null << 'EOF'
 firewall_backend = "iptables"
 EOF
-        
-        print_success "iptables installed and libvirt configured"
+            print_success "Created $network_conf"
+        fi
     fi
 }
 
