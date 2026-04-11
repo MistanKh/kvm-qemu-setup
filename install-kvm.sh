@@ -1186,13 +1186,14 @@ check_sudo() {
             exit 1
         fi
     else
-        # Cache sudo credentials upfront with visible prompt
-        printf '\033[0;34m  ℹ\033[0m Requesting sudo access (may prompt for password)...\n'
-        if ! sudo -v; then
-            printf '\033[0;31m  ✗\033[0m Failed to get sudo access - check password\n'
-            exit 1
+        # Try to cache sudo credentials, but don't fail if it doesn't work
+        # Some systems (like Fedora) may have stricter sudo configuration
+        printf '\033[0;34m  ℹ\033[0m Verifying sudo access...\n'
+        if sudo -v 2>/dev/null; then
+            printf '\033[0;32m  ✓\033[0m sudo access verified\n'
+        else
+            printf '\033[0;33m  ⚠\033[0m sudo cache failed - will prompt for password when needed\n'
         fi
-        printf '\033[0;32m  ✓\033[0m sudo access granted\n'
     fi
 }
 
