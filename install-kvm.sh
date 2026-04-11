@@ -46,7 +46,7 @@ init_shell() {
     # Get shell name without path - POSIX compatible
     case "$SHELL" in
         */*) SHELL_NAME=$(expr "$SHELL" : '.*/\(.*\)') ;;
-        *)   SHELL_NAME=${SHELL:-sh} ;;
+        *)   SHELL_NAME="${SHELL}"; [ -z "$SHELL_NAME" ] && SHELL_NAME="sh" ;;
     esac
     SHELL_EXT="${SHELL_EXT:-sh}"
 }
@@ -107,9 +107,16 @@ print_skip() {
 
 need_reboot() {
     reason=$1
+    # Check if reason already exists (simple substring match)
     case "$REBOOT_REASONS" in
         *"$reason"*) ;;
-        *) REBOOT_REASONS="${REBOOT_REASONS}${reason}\n" ;;
+        *) 
+            if [ -z "$REBOOT_REASONS" ]; then
+                REBOOT_REASONS="$reason"
+            else
+                REBOOT_REASONS="${REBOOT_REASONS}|${reason}"
+            fi
+            ;;
     esac
     REBOOT_NEEDED=true
 }
@@ -183,7 +190,7 @@ detect_shell() {
     # Get shell name without path - POSIX compatible
     case "$SHELL" in
         */*) SHELL_NAME=$(expr "$SHELL" : '.*/\(.*\)') ;;
-        *)   SHELL_NAME=${SHELL:-sh} ;;
+        *)   SHELL_NAME="${SHELL}"; [ -z "$SHELL_NAME" ] && SHELL_NAME="sh" ;;
     esac
     
     case "$SHELL_NAME" in
@@ -495,7 +502,8 @@ install_packages() {
                     print_warning "apt update failed - continuing anyway"
                 fi
                 print_info "Installing:${to_install}"
-                if ! sudo apt install -y $to_install 2>&1 | grep -v "^$"; then
+                install_output=$(sudo apt install -y $to_install 2>&1) || true
+                if echo "$install_output" | grep -qi "error\|failed\|could not"; then
                     print_warning "Some packages may have failed to install"
                 fi
                 need_reboot "New virtualization packages installed"
@@ -505,17 +513,25 @@ install_packages() {
             ;;
         fedora|rhel)
             print_info "Distribution: Fedora/RHEL"
-            packages='qemu-kvm libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools libosinfo tuned'
+            packages='qemu-kvm libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools tuned'
             for pkg in $packages; do
                 if install_if_missing "$pkg"; then
                     to_install="$to_install $pkg"
                 fi
             done
             
+            # libosinfo might be named differently
+            if install_if_missing "libosinfo" 2>/dev/null; then
+                to_install="$to_install libosinfo"
+            fi
+            
             if [ -n "$to_install" ]; then
                 echo ''
                 print_info "Installing:${to_install}"
-                sudo dnf install -y $to_install
+                install_output=$(sudo dnf install -y $to_install 2>&1) || true
+                if echo "$install_output" | grep -qi "error"; then
+                    print_warning "Some packages may have failed to install"
+                fi
                 need_reboot "New virtualization packages installed"
             else
                 print_success "All packages already installed!"
@@ -626,7 +642,7 @@ validate_host() {
     
     if echo "$output" | grep -qi "FAIL"; then
         print_warning "Some validation checks failed:"
-        echo "$output" | grep -i "fail" | sed 's/^/  /' | head -5
+        echo "$output" | grep -i "fail" | sed 's/^/  /' | head -n 5
     elif echo "$output" | grep -qi "WARN"; then
         print_info "Validation completed with warnings (usually safe to proceed)"
     else
@@ -652,7 +668,8 @@ setup_tuned() {
     print_info "Setting TuneD profile to virtual-host..."
     if sudo tuned-adm profile virtual-host >/dev/null 2>&1; then
         print_success "TuneD configured for optimal VM performance"
-        print_info "Current profile: $(tuned-adm active 2>/dev/null | head -1)"
+        current_profile=$(tuned-adm active 2>/dev/null | head -n 1)
+        print_info "Current profile: ${current_profile}"
     else
         print_error "Failed to set TuneD profile"
     fi
@@ -929,7 +946,14 @@ show_iommu_guide() {
             case "$OS" in
                 arch) printf '\033[2m  sudo grub-mkconfig -o /boot/grub/grub.cfg\033[0m\n' ;;
                 debian|ubuntu) printf '\033[2m  sudo update-grub\033[0m\n' ;;
-                fedora|rhel) printf '\033[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg\033[0m\n' ;;
+                fedora|rhel)
+                    # Try new command first, fallback to old
+                    if command -v grub2-mkconfig >/dev/null 2>&1; then
+                        printf '\033[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg\033[0m\n'
+                    else
+                        printf '\033[2m  sudo grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg\033[0m\n'
+                    fi
+                    ;;
             esac
             echo ''
             print_info "Reboot and verify: dmesg | grep -i DMAR"
@@ -947,13 +971,12 @@ show_reboot_prompt() {
     printf '%s\n' '  ┌─ Reboot Recommended ─────────────────────────────────────────┐'
     printf '%s\n' '  │'
     
-    # Parse REBOOT_REASONS (format: "reason\nreason\n")
-    reason_save=$REBOOT_REASONS
-    while [ -n "$reason_save" ]; do
-        reason=${reason_save%%\\n*}
-        reason_save=${reason_save#*"\\n"}
-        [ -n "$reason" ] && printf '\033[1;33m  │  • %s\033[0m\n' "$reason"
-    done
+    # Parse REBOOT_REASONS (format: "reason|reason|reason")
+    if [ -n "$REBOOT_REASONS" ]; then
+        echo "$REBOOT_REASONS" | tr '|' '\n' | while read -r reason; do
+            [ -n "$reason" ] && printf '\033[1;33m  │  • %s\033[0m\n' "$reason"
+        done
+    fi
     
     printf '%s\n' '  │'
     printf '\033[1;33m  │  \033[2mReboot ensures:\033[0m\n'
