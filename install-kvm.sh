@@ -924,6 +924,7 @@ firewall_backend = "iptables"
 EOF
             print_success "Created $network_conf"
         fi
+        need_reboot "Libvirt network backend configured"
     elif [ "$iptables_installed" = "true" ]; then
         print_skip "iptables already available"
     else
@@ -941,6 +942,7 @@ EOF
                 sudo dnf install -y iptables
                 ;;
         esac
+        need_reboot "iptables installed"
         
         sudo mkdir -p /etc/libvirt
         
@@ -958,6 +960,7 @@ firewall_backend = "iptables"
 EOF
             print_success "Created $network_conf"
         fi
+        need_reboot "Libvirt network backend configured"
     fi
 }
 
