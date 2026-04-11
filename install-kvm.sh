@@ -49,23 +49,25 @@ init_shell() {
 
 print_banner() {
     echo ''
-    echo '\033[0;36m╔═══════════════════════════════════════════════════════════╗\033[0m'
-    echo '\033[0;36m║                                                           ║\033[0m'
-    echo '\033[0;36m║   \033[1m███╗   ██╗███████╗ ██████╗ ███╗   ██╗\033[0;36m               ║\033[0m'
-    echo '\033[0;36m║   ████╗  ██║██╔════╝██╔═══██╗████╗  ██║\033[0;36m               ║\033[0m'
-    echo '\033[0;36m║   ██╔██╗ ██║█████╗  ██║   ██║██╔██╗ ██║\033[0;36m               ║\033[0m'
-    echo '\033[0;36m║   ██║╚██╗██║██╔══╝  ██║   ██║██║╚██╗██║\033[0;36m               ║\033[0m'
-    echo '\033[0;36m║   ██║ ╚████║███████╗╚██████╔╝██║ ╚████║\033[0;36m               ║\033[0m'
-    echo '\033[0;36m║   ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝\033[0;36m               ║\033[0m'
-    echo '\033[0;36m║                                                           ║\033[0m'
-    echo '\033[0;36m║   \033[1m\033[0;36m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\033[0;36m         ║\033[0m'
-    echo '\033[0;36m║                                                           ║\033[0m'
-    echo '\033[0;36m║   \033[2mAutomated QEMU/KVM Installation & Configuration\033[0m\033[0;36m       ║\033[0m'
-    echo '\033[0;36m║                                                           ║\033[0m'
-    echo '\033[0;36m╚═══════════════════════════════════════════════════════════╝\033[0m'
+    printf '\033[0;36m'
+    printf '%s\n' '╔═══════════════════════════════════════════════════════════╗'
+    printf '%s\n' '║                                                           ║'
+    printf '%s\n' '║   ███╗   ██╗███████╗ ██████╗ ███╗   ██╗               ║'
+    printf '%s\n' '║   ████╗  ██║██╔════╝██╔═══██╗████╗  ██║               ║'
+    printf '%s\n' '║   ██╔██╗ ██║█████╗  ██║   ██║██╔██╗ ██║               ║'
+    printf '%s\n' '║   ██║╚██╗██║██╔══╝  ██║   ██║██║╚██╗██║               ║'
+    printf '%s\n' '║   ██║ ╚████║███████╗╚██████╔╝██║ ╚████║               ║'
+    printf '%s\n' '║   ╚═╝  ╚═══╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝               ║'
+    printf '%s\n' '║                                                           ║'
+    printf '%s\n' '║   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀               ║'
+    printf '%s\n' '║                                                           ║'
+    printf '\033[2m%s\033[0m\n' '║   Automated QEMU/KVM Installation & Configuration       ║'
+    printf '%s\n' '║                                                           ║'
+    printf '%s\n' '╚═══════════════════════════════════════════════════════════╝'
+    printf '\033[0m'
     echo ''
-    echo '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m'
-    echo '\033[2m   Created with: https://opencode.ai\033[0m'
+    printf '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m\n'
+    printf '\033[2m   Created with: https://opencode.ai\033[0m\n'
     echo ''
 }
 
@@ -158,12 +160,12 @@ detect_os() {
     else
         echo ''
         print_error "Unsupported OS detected"
-        echo '\033[2m  This script supports:\033[0m'
-        echo '\033[2m  • Arch Linux\033[0m'
-        echo '\033[2m  • Debian\033[0m'
-        echo '\033[2m  • Ubuntu\033[0m'
-        echo '\033[2m  • Fedora\033[0m'
-        echo '\033[2m  • RHEL-based (Rocky, Alma, CentOS)\033[0m'
+        printf '\033[2m  This script supports:\033[0m\n'
+        printf '\033[2m  • Arch Linux\033[0m\n'
+        printf '\033[2m  • Debian\033[0m\n'
+        printf '\033[2m  • Ubuntu\033[0m\n'
+        printf '\033[2m  • Fedora\033[0m\n'
+        printf '\033[2m  • RHEL-based (Rocky, Alma, CentOS)\033[0m\n'
         exit 1
     fi
     
@@ -257,8 +259,8 @@ check_virtualization() {
             print_error "Hardware virtualization: DISABLED or NOT SUPPORTED"
             echo ''
             print_warning "Please enable virtualization in BIOS/UEFI:"
-            echo '\033[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)\033[0m'
-            echo '\033[2m  • AMD CPUs: Enable AMD-V (SVM Mode)\033[0m'
+            printf '\033[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)\033[0m\n'
+            printf '\033[2m  • AMD CPUs: Enable AMD-V (SVM Mode)\033[0m\n'
             echo ''
             
             continue_prompt=''
@@ -677,6 +679,12 @@ setup_network_bridge() {
         *) print_skip "Network bridge skipped (VMs will use NAT)"; return ;;
     esac
     
+    if ! command -v nmcli >/dev/null 2>&1; then
+        print_error "NetworkManager (nmcli) not found"
+        print_info "Network bridge setup requires NetworkManager"
+        return
+    fi
+    
     echo ''
     print_warning "Network bridge requires ethernet (not Wi-Fi)"
     
@@ -838,15 +846,15 @@ show_iommu_guide() {
             echo ''
             print_info "Edit /etc/default/grub:"
             case "$CPU_VENDOR" in
-                GenuineIntel) echo '\033[2m  GRUB_CMDLINE_LINUX="... intel_iommu=on iommu=pt"\033[0m' ;;
-                *) echo '\033[2m  GRUB_CMDLINE_LINUX="... iommu=pt"\033[0m' ;;
+                GenuineIntel) printf '\033[2m  GRUB_CMDLINE_LINUX="... intel_iommu=on iommu=pt"\033[0m\n' ;;
+                *) printf '\033[2m  GRUB_CMDLINE_LINUX="... iommu=pt"\033[0m\n' ;;
             esac
             echo ''
             print_info "Update GRUB:"
             case "$OS" in
-                arch) echo '\033[2m  sudo grub-mkconfig -o /boot/grub/grub.cfg\033[0m' ;;
-                debian|ubuntu) echo '\033[2m  sudo update-grub\033[0m' ;;
-                fedora|rhel) echo '\033[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg\033[0m' ;;
+                arch) printf '\033[2m  sudo grub-mkconfig -o /boot/grub/grub.cfg\033[0m\n' ;;
+                debian|ubuntu) printf '\033[2m  sudo update-grub\033[0m\n' ;;
+                fedora|rhel) printf '\033[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg\033[0m\n' ;;
             esac
             echo ''
             print_info "Reboot and verify: dmesg | grep -i DMAR"
@@ -860,19 +868,26 @@ show_reboot_prompt() {
         return
     fi
     
-    dashes=$(printf '%50s' | tr ' ' '-')
-    echo "\033[1;33m  ┌─ Reboot Recommended ─────────────────────────────────────────┌\033[0m"
-    echo "\033[1;33m  │\033[0m"
-    echo "$REBOOT_REASONS" | while IFS= read -r reason; do
-        [ -n "$reason" ] && echo "\033[1;33m  │  • $reason\033[0m"
+    printf '\033[1;33m'
+    printf '%s\n' '  ┌─ Reboot Recommended ─────────────────────────────────────────┐'
+    printf '%s\n' '  │'
+    
+    # Parse REBOOT_REASONS (format: "reason\nreason\n")
+    reason_save=$REBOOT_REASONS
+    while [ -n "$reason_save" ]; do
+        reason=${reason_save%%\\n*}
+        reason_save=${reason_save#*"\\n"}
+        [ -n "$reason" ] && printf '\033[1;33m  │  • %s\033[0m\n' "$reason"
     done
-    echo "\033[1;33m  │\033[0m"
-    echo "\033[1;33m  │\033[0m \033[2mReboot ensures:\033[0m"
-    echo "\033[1;33m  │\033[0m \033[2m  • KVM modules load properly\033[0m"
-    echo "\033[1;33m  │\033[0m \033[2m  • Services start in correct order\033[0m"
-    echo "\033[1;33m  │\033[0m \033[2m  • No intermittent VM issues\033[0m"
-    echo "\033[1;33m  │\033[0m"
-    echo "\033[1;33m  └──────────────────────────────────────────────────────────────┘\033[0m"
+    
+    printf '%s\n' '  │'
+    printf '\033[1;33m  │  \033[2mReboot ensures:\033[0m\n'
+    printf '\033[1;33m  │  \033[2m  • KVM modules load properly\033[0m\n'
+    printf '\033[1;33m  │  \033[2m  • Services start in correct order\033[0m\n'
+    printf '\033[1;33m  │  \033[2m  • No intermittent VM issues\033[0m\n'
+    printf '%s\n' '  │'
+    printf '%s\n' '  └──────────────────────────────────────────────────────────────┘'
+    printf '\033[0m'
     echo ''
     
     reboot_now=''
@@ -895,20 +910,20 @@ show_reboot_prompt() {
 
 show_next_steps() {
     echo ''
-    echo '\033[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m'
-    echo '\033[0;32m\033[1m  ✓ Installation Complete!\033[0m'
-    echo '\033[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m'
+    printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+    printf '\033[0;32m\033[1m  ✓ Installation Complete!\033[0m\n'
+    printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
     echo ''
     
     if [ "$REBOOT_NEEDED" != "true" ]; then
-        echo '\033[0;32m\033[1m  Everything is configured and ready!\033[0m'
+        printf '\033[0;32m\033[1m  Everything is configured and ready!\033[0m\n'
         echo ''
     fi
     
-    echo '\033[1m  Quick Start:\033[0m'
-    echo '\033[2m  1. virt-manager\033[0m        - Launch VM Manager'
-    echo '\033[2m  2. virsh net-list\033[0m       - View networks'
-    echo '\033[2m  3. virt-host-validate\033[0m   - Verify setup'
+    printf '\033[1m  Quick Start:\033[0m\n'
+    printf '\033[2m  1. virt-manager\033[0m        - Launch VM Manager\n'
+    printf '\033[2m  2. virsh net-list\033[0m       - View networks\n'
+    printf '\033[2m  3. virt-host-validate\033[0m   - Verify setup\n'
     echo ''
     
     if [ "$REBOOT_NEEDED" = "true" ]; then
@@ -916,8 +931,8 @@ show_next_steps() {
     fi
     
     echo ''
-    echo '\033[2m  Documentation: https://sysguides.com/install-kvm-on-linux\033[0m'
-    echo '\033[2m  Script created with: https://opencode.ai\033[0m'
+    printf '\033[2m  Documentation: https://sysguides.com/install-kvm-on-linux\033[0m\n'
+    printf '\033[2m  Script created with: https://opencode.ai\033[0m\n'
     echo ''
 }
 
@@ -964,10 +979,13 @@ parse_args() {
 main() {
     parse_args "$@"
     
+    init_shell
+    
     if [ "$(id -u)" -eq 0 ]; then
         echo ''
-        print_warning "Running as root - group membership changes won't persist"
-        print_info "Consider running as a normal user with sudo"
+        print_warning "Running as root - group changes won't take effect for root"
+        print_info "Run as normal user with sudo for proper configuration"
+        print_info "Or use 'sudo -E $0' to preserve environment"
         echo ''
     fi
     
