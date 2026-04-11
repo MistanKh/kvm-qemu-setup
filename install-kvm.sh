@@ -3,12 +3,11 @@
 # Supports bash, zsh, and fish shells
 # Based on https://sysguides.com/install-kvm-on-linux
 
-set -e
-
 REBOOT_NEEDED=false
 REBOOT_REASONS=()
 SKIP_REBOOT=false
 FORCE_REINSTALL=false
+INSTALL_QEMU=true
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -194,6 +193,7 @@ add_to_shell_config() {
             fi
             ;;
         fish)
+            mkdir -p "$(dirname "$SHELL_RC")"
             if ! grep -qF -- "$line" "$SHELL_RC" 2>/dev/null; then
                 echo "$line" >> "$SHELL_RC"
             fi
@@ -392,12 +392,18 @@ install_packages() {
                 print_success "All packages already installed!"
             fi
             
-            if command -v yay &>/dev/null; then
+            if command -v yay &>/dev/null || command -v paru &>/dev/null; then
+                local aur_helper
+                aur_helper=$(command -v yay || command -v paru)
                 if install_if_missing "tuned"; then
-                    yay -S --noconfirm tuned
+                    print_info "Installing tuned from AUR..."
+                    if ! sudo "$aur_helper" -S --noconfirm tuned 2>/dev/null; then
+                        print_error "Failed to install tuned from AUR"
+                    fi
                 fi
             else
-                print_skip "tuned not in official repos (AUR only)"
+                print_skip "tuned not in official repos (AUR helper needed)"
+                print_info "Install yay or paru to enable TuneD support"
             fi
             ;;
         debian|ubuntu)
@@ -473,9 +479,13 @@ enable_libvirt_daemons() {
                     sudo systemctl start "$socket" 2>/dev/null || true
                 else
                     print_info "Enabling virt${drv}d..."
-                    sudo systemctl enable --now "$svc" 2>/dev/null || \
-                    sudo systemctl enable --now "$socket" 2>/dev/null || true
-                    newly_enabled=true
+                    if sudo systemctl enable --now "$svc" 2>/dev/null; then
+                        newly_enabled=true
+                    elif sudo systemctl enable --now "$socket" 2>/dev/null; then
+                        newly_enabled=true
+                    else
+                        print_warning "Failed to enable virt${drv}d"
+                    fi
                 fi
             done
             ;;
@@ -484,11 +494,14 @@ enable_libvirt_daemons() {
                 print_skip "libvirtd: already active"
             elif is_service_enabled "libvirtd.service"; then
                 print_info "Starting libvirtd..."
-                sudo systemctl start libvirtd.service
+                sudo systemctl start libvirtd.service 2>/dev/null || true
             else
                 print_info "Enabling libvirtd..."
-                sudo systemctl enable --now libvirtd.service
-                newly_enabled=true
+                if sudo systemctl enable --now libvirtd.service 2>/dev/null; then
+                    newly_enabled=true
+                else
+                    print_warning "Failed to enable libvirtd"
+                fi
             fi
             ;;
     esac
@@ -504,11 +517,22 @@ validate_host() {
     echo ""
     print_info "Running virtualization validation..."
     
-    if command -v virt-host-validate &>/dev/null; then
-        echo ""
-        sudo virt-host-validate qemu 2>/dev/null || true
+    if ! command -v virt-host-validate &>/dev/null; then
+        print_skip "virt-host-validate not available (install libvirt-client)"
+        return
+    fi
+    
+    echo ""
+    local output
+    output=$(sudo virt-host-validate qemu 2>&1) || true
+    
+    if echo "$output" | grep -qi "FAIL"; then
+        print_warning "Some validation checks failed:"
+        echo "$output" | grep -i "fail" | sed 's/^/  /' | head -5
+    elif echo "$output" | grep -qi "WARN"; then
+        print_info "Validation completed with warnings (usually safe to proceed)"
     else
-        print_skip "virt-host-validate not available"
+        print_success "All validation checks passed!"
     fi
 }
 
@@ -614,13 +638,20 @@ setup_network_bridge() {
     ip -brief link show 2>/dev/null | grep -v "lo\|virbr" || true
     
     local bridge_iface
-    echo -ne "  ${BOLD}Enter ethernet interface name${NC}: "
+    echo -ne "  ${BOLD}Enter ethernet interface name${NC} (e.g., enp0s3): "
     read -r bridge_iface
     
-    if [[ -z "$bridge_iface" ]] || ! ip link show "$bridge_iface" &>/dev/null; then
-        print_error "Invalid interface or not found"
+    if [[ -z "$bridge_iface" ]]; then
+        print_error "No interface specified"
         return
     fi
+    
+    if ! ip link show "$bridge_iface" &>/dev/null; then
+        print_error "Interface '$bridge_iface' not found"
+        return
+    fi
+    
+    print_success "Using interface: $bridge_iface"
     
     print_info "Creating bridge 'bridge0'..."
     sudo nmcli connection add type bridge con-name bridge0 ifname bridge0 2>/dev/null || \
@@ -636,6 +667,7 @@ setup_network_bridge() {
     
     if [[ "$use_dhcp" =~ ^[Yy]$ ]]; then
         sudo nmcli connection modify bridge0 ipv4.method auto
+        print_info "Bridge will use DHCP"
     else
         local bridge_ip gateway dns
         echo -ne "  ${BOLD}IP/CIDR${NC} (e.g., 192.168.1.100/24): "
@@ -645,10 +677,20 @@ setup_network_bridge() {
         echo -ne "  ${BOLD}DNS servers${NC} (comma separated): "
         read -r dns
         
+        if [[ -z "$bridge_ip" || -z "$gateway" ]]; then
+            print_error "IP and gateway are required for static configuration"
+            return
+        fi
+        
+        if ! echo "$bridge_ip" | grep -qE '^[^/]+/[0-9]+$'; then
+            print_warning "IP format may be invalid (expected: 192.168.1.100/24)"
+        fi
+        
         sudo nmcli connection modify bridge0 ipv4.addresses "$bridge_ip"
         sudo nmcli connection modify bridge0 ipv4.gateway "$gateway"
-        sudo nmcli connection modify bridge0 ipv4.dns "$dns"
+        [[ -n "$dns" ]] && sudo nmcli connection modify bridge0 ipv4.dns "$dns"
         sudo nmcli connection modify bridge0 ipv4.method manual
+        print_info "Bridge configured with static IP: $bridge_ip"
     fi
     
     print_info "Bringing up bridge..."
@@ -689,22 +731,37 @@ setup_virtio_windows() {
     local virtio_dir="/var/lib/libvirt/images/virtio-win"
     sudo mkdir -p "$virtio_dir"
     
+    local download_failed=false
     if command -v wget &>/dev/null; then
-        sudo wget -q "$virtio_url" -O "$virtio_dir/virtio-win.iso"
+        if ! sudo wget --timeout=30 -q "$virtio_url" -O "$virtio_dir/virtio-win.iso" 2>/dev/null; then
+            download_failed=true
+        fi
     elif command -v curl &>/dev/null; then
-        sudo curl -sL "$virtio_url" -o "$virtio_dir/virtio-win.iso"
+        if ! sudo curl --max-time 30 -sL "$virtio_url" -o "$virtio_dir/virtio-win.iso" 2>/dev/null; then
+            download_failed=true
+        fi
     else
-        print_warning "Download failed - install wget or curl"
+        print_error "Neither wget nor curl available"
         print_info "Download manually from: $virtio_url"
         return
     fi
     
-    if [[ -f "$virtio_dir/virtio-win.iso" ]]; then
-        print_success "VirtIO drivers downloaded"
+    if $download_failed; then
+        print_error "Failed to download VirtIO drivers (network error)"
+        print_info "Download manually from: $virtio_url"
+        return
+    fi
+    
+    if [[ -f "$virtio_dir/virtio-win.iso" ]] && [[ -s "$virtio_dir/virtio-win.iso" ]]; then
+        local size
+        size=$(du -h "$virtio_dir/virtio-win.iso" | cut -f1)
+        print_success "VirtIO drivers downloaded ($size)"
         print_info "Location: $virtio_dir/virtio-win.iso"
         print_info "Attach as CD-ROM when installing Windows"
     else
-        print_error "Failed to download VirtIO drivers"
+        print_error "Downloaded file is empty or invalid"
+        print_info "Download manually from: $virtio_url"
+        rm -f "$virtio_dir/virtio-win.iso"
     fi
 }
 
@@ -793,10 +850,10 @@ show_reboot_prompt() {
         echo -e "${YELLOW}  │  • $reason${NC}"
     done
     echo -e "${YELLOW}  │${NC}"
-    echo -e "${YELLOW}  │${NC} ${DIM}Reboot ensures:${NC}
-    echo -e "${YELLOW}  │${NC} ${DIM}  • KVM modules load properly${NC}
-    echo -e "${YELLOW}  │${NC} ${DIM}  • Services start in correct order${NC}
-    echo -e "${YELLOW}  │${NC} ${DIM}  • No intermittent VM issues${NC}
+    echo -e "${YELLOW}  │${NC} ${DIM}Reboot ensures:${NC}"
+    echo -e "${YELLOW}  │${NC} ${DIM}  • KVM modules load properly${NC}"
+    echo -e "${YELLOW}  │${NC} ${DIM}  • Services start in correct order${NC}"
+    echo -e "${YELLOW}  │${NC} ${DIM}  • No intermittent VM issues${NC}"
     echo -e "${YELLOW}  │${NC}"
     echo -e "${YELLOW}  └──────────────────────────────────────────────────────┘${NC}"
     echo ""
@@ -870,6 +927,13 @@ parse_args() {
 
 main() {
     parse_args "$@"
+    
+    if [[ $EUID -eq 0 ]]; then
+        echo ""
+        print_warning "Running as root - group membership changes won't persist"
+        print_info "Consider running as a normal user with sudo"
+        echo ""
+    fi
     
     print_banner
     
