@@ -54,22 +54,22 @@ init_shell() {
 print_banner() {
     echo ''
     printf '\033[0;36m'
-    printf '%s\n' '╔═══════════════════════════════════════════════════════════════╗'
-    printf '%s\n' '║                                                               ║'
-    printf '%s\n' '║   ██╗   ██╗ █████╗ ██╗   ██╗██╗  ██╗                     ║'
-    printf '%s\n' '║   ██║   ██║██╔══██╗██║   ██║██║ ██╔╝                     ║'
-    printf '%s\n' '║   ██║   ██║███████║██║   ██║█████╔╝                      ║'
-    printf '%s\n' '║   ╚██╗ ██╔╝██╔══██║██║   ██║██╔═██╗                      ║'
-    printf '%s\n' '║    ╚████╔╝ ██║  ██║╚██████╔╝██║  ██╗                     ║'
-    printf '%s\n' '║     ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝                     ║'
-    printf '%s\n' '║                                                               ║'
-    printf '%s\n' '║   ═════════════════════════════════════════════════════════   ║'
-    printf '%s\n' '║                                                               ║'
-    printf '\033[2m%s\033[0m\n' '║             QEMU/KVM Setup for Linux Systems                   ║'
-    printf '%s\n' '║                                                               ║'
-    printf '033[2m%s033[0m\n' '║             by Mistan Khomdram | github.com/MistanKh         ║'
-    printf '%s\n' '║                                                               ║'
-    printf '%s\n' '╚═══════════════════════════════════════════════════════════════╝'
+    printf '%s\n' '╔══════════════════════════════════════════════════════════════╗'
+    printf '%s\n' '║                                                              ║'
+    printf '%s\n' '║   ██╗   ██╗ █████╗ ██╗   ██╗██╗  ██╗                    ║'
+    printf '%s\n' '║   ██║   ██║██╔══██╗██║   ██║██║ ██╔╝                    ║'
+    printf '%s\n' '║   ██║   ██║███████║██║   ██║█████╔╝                     ║'
+    printf '%s\n' '║   ╚██╗ ██╔╝██╔══██║██║   ██║██╔═██╗                     ║'
+    printf '%s\n' '║    ╚████╔╝ ██║  ██║╚██████╔╝██║  ██╗                    ║'
+    printf '%s\n' '║     ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝                    ║'
+    printf '%s\n' '║                                                              ║'
+    printf '%s\n' '╠══════════════════════════════════════════════════════════════╣'
+    printf '%s\n' '║                                                              ║'
+    printf '\033[2m%s\033[0m\n' '║              QEMU/KVM Setup for Linux Systems                  ║'
+    printf '%s\n' '║                                                              ║'
+    printf '\033[2m%s\033[0m\n' '║              by Mistan Khomdram | github.com/MistanKh         ║'
+    printf '%s\n' '║                                                              ║'
+    printf '%s\n' '╚══════════════════════════════════════════════════════════════╝'
     printf '\033[0m'
     echo ''
     printf '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m\n'
@@ -895,20 +895,20 @@ setup_virtio_windows() {
     
     print_info "Downloading VirtIO drivers..."
     
-    # Always download latest version from the latest-virtio directory
-    virtio_url="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio/virtio-win.iso"
+    # Download stable version from the stable-virtio directory
+    virtio_url="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
     virtio_dir="/var/lib/libvirt/images/virtio-win"
     sudo mkdir -p "$virtio_dir"
     
     download_failed=false
     if command -v wget >/dev/null 2>&1; then
-        print_info "Downloading with wget..."
-        if ! sudo wget --timeout=120 --progress=bar:force "$virtio_url" -O "$virtio_dir/virtio-win.iso" 2>&1 | tail -n 10; then
+        print_info "Downloading with wget (this may take a while)..."
+        if ! sudo wget --timeout=120 --progress=bar:force:noscroll "$virtio_url" -O "$virtio_dir/virtio-win.iso"; then
             download_failed=true
         fi
     elif command -v curl >/dev/null 2>&1; then
-        print_info "Downloading with curl..."
-        if ! sudo curl --max-time 120 -# -L "$virtio_url" -o "$virtio_dir/virtio-win.iso" 2>&1; then
+        print_info "Downloading with curl (this may take a while)..."
+        if ! sudo curl --max-time 120 -# -L "$virtio_url" -o "$virtio_dir/virtio-win.iso"; then
             download_failed=true
         fi
     else
