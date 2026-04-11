@@ -47,8 +47,10 @@ print_step() {
     local step=$1
     local total=$2
     local message=$3
+    local dashes
+    dashes=$(printf '%*s' 50 | tr ' ' '─')
     echo -e "\n${CYAN}┌─${NC} ${BOLD}${step}/${total}${NC} ${message}${NC}"
-    echo -e "${CYAN}└─${NC} ${DIM}$(printf '─%.0s' {1..50})${NC}"
+    echo -e "${CYAN}└─${NC} ${DIM}${dashes}${NC}"
 }
 
 print_success() {
