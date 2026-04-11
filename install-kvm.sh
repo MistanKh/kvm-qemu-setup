@@ -895,7 +895,8 @@ setup_virtio_windows() {
     
     print_info "Downloading VirtIO drivers..."
     
-    virtio_url="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.240-1/virtio-win-0.1.240.iso"
+    # Always download latest version from the latest-virtio directory
+    virtio_url="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio/virtio-win.iso"
     virtio_dir="/var/lib/libvirt/images/virtio-win"
     sudo mkdir -p "$virtio_dir"
     
