@@ -544,12 +544,17 @@ install_packages() {
 
 is_service_active() {
     svc=$1
-    systemctl is-active "$svc" >/dev/null 2>&1
+    timeout 5 systemctl is-active "$svc" >/dev/null 2>&1
 }
 
 is_service_enabled() {
     svc=$1
-    systemctl is-enabled "$svc" >/dev/null 2>&1
+    timeout 5 systemctl is-enabled "$svc" >/dev/null 2>&1
+}
+
+run_systemd() {
+    cmd=$1
+    timeout 30 sudo $cmd >/dev/null 2>&1
 }
 
 enable_libvirt_daemons() {
@@ -557,6 +562,7 @@ enable_libvirt_daemons() {
     echo ''
     
     newly_enabled=false
+    failed_services=""
     
     case "$OS" in
         arch|fedora|rhel)
@@ -580,25 +586,26 @@ enable_libvirt_daemons() {
                     print_skip "virt${drv}d: already active"
                 elif is_service_enabled "$svc"; then
                     print_info "Starting virt${drv}d..."
-                    sudo systemctl start "$svc" >/dev/null 2>&1 || true
-                    for s in "$socket" "$socket_ro" "$socket_admin"; do
-                        sudo systemctl start "$s" >/dev/null 2>&1 || true
-                    done
+                    if ! run_systemd "systemctl start $svc"; then
+                        print_warning "Timeout/failed starting virt${drv}d"
+                        failed_services="${failed_services} virt${drv}d"
+                    fi
                 else
                     print_info "Enabling virt${drv}d..."
-                    if sudo systemctl enable --now "$svc" >/dev/null 2>&1; then
+                    if run_systemd "systemctl enable --now $svc"; then
                         newly_enabled=true
                     else
                         # Try sockets as fallback
                         enabled_any=false
                         for s in "$socket" "$socket_ro" "$socket_admin"; do
-                            if sudo systemctl enable --now "$s" >/dev/null 2>&1; then
+                            if run_systemd "systemctl enable --now $s"; then
                                 newly_enabled=true
                                 enabled_any=true
                             fi
                         done
                         if [ "$enabled_any" = "false" ]; then
-                            print_warning "Failed to enable virt${drv}d"
+                            print_warning "Failed to enable virt${drv}d (timeout or error)"
+                            failed_services="${failed_services} virt${drv}d"
                         fi
                     fi
                 fi
@@ -609,17 +616,24 @@ enable_libvirt_daemons() {
                 print_skip "libvirtd: already active"
             elif is_service_enabled "libvirtd.service"; then
                 print_info "Starting libvirtd..."
-                sudo systemctl start libvirtd.service >/dev/null 2>&1 || true
+                if ! run_systemd "systemctl start libvirtd.service"; then
+                    print_warning "Timeout/failed starting libvirtd"
+                fi
             else
                 print_info "Enabling libvirtd..."
-                if sudo systemctl enable --now libvirtd.service >/dev/null 2>&1; then
+                if run_systemd "systemctl enable --now libvirtd.service"; then
                     newly_enabled=true
                 else
-                    print_warning "Failed to enable libvirtd"
+                    print_warning "Failed to enable libvirtd (timeout or error)"
                 fi
             fi
             ;;
     esac
+    
+    if [ -n "$failed_services" ]; then
+        printf '\033[1;33m  ⚠\033[0m Some services failed: %s\n' "$failed_services"
+        printf '\033[0;34m  ℹ\033[0m You may need to enable them manually after reboot\n'
+    fi
     
     if [ "$newly_enabled" = "true" ]; then
         need_reboot "New libvirt services enabled"
@@ -967,25 +981,28 @@ show_reboot_prompt() {
         return
     fi
     
-    printf '[1;33m'
+    printf '\033[1;33m'
     printf '%s\n' '  ┌─ Reboot Recommended ─────────────────────────────────────────┐'
     printf '%s\n' '  │'
     
     # Parse REBOOT_REASONS (format: "reason|reason|reason")
+    # Use a temp file to avoid subshell issues
     if [ -n "$REBOOT_REASONS" ]; then
-        echo "$REBOOT_REASONS" | tr '|' '\n' | while read -r reason; do
-            [ -n "$reason" ] && printf '[1;33m  │  • %s[0m\n' "$reason"
-        done
+        echo "$REBOOT_REASONS" | tr '|' '\n' > /tmp/reboot_reasons_$$.txt
+        while IFS= read -r reason; do
+            [ -n "$reason" ] && printf '\033[1;33m  │  • %s\033[0m\n' "$reason"
+        done < /tmp/reboot_reasons_$$.txt
+        rm -f /tmp/reboot_reasons_$$.txt
     fi
     
     printf '%s\n' '  │'
-    printf '[1;33m  │  [2mReboot ensures:[0m\n'
-    printf '[1;33m  │  [2m  • KVM modules load properly[0m\n'
-    printf '[1;33m  │  [2m  • Services start in correct order[0m\n'
-    printf '[1;33m  │  [2m  • No intermittent VM issues[0m\n'
+    printf '\033[1;33m  │  \033[2mReboot ensures:\033[0m\n'
+    printf '\033[1;33m  │  \033[2m  • KVM modules load properly\033[0m\n'
+    printf '\033[1;33m  │  \033[2m  • Services start in correct order\033[0m\n'
+    printf '\033[1;33m  │  \033[2m  • No intermittent VM issues\033[0m\n'
     printf '%s\n' '  │'
     printf '%s\n' '  └──────────────────────────────────────────────────────────────┘'
-    printf '[0m'
+    printf '\033[0m'
     echo ''
     
     reboot_now=''
@@ -994,12 +1011,10 @@ show_reboot_prompt() {
     case "$reboot_now" in
         Y|y)
             echo ''
-            print_info "Rebooting in 10 seconds... Press Ctrl+C to cancel"
-            count=10
-            while [ $count -gt 0 ]; do
-                printf '\033[0;34m  ℹ\033[0m %d... \r' "$count"
+            printf '\033[0;34m  ℹ\033[0m Rebooting in 10 seconds... Press Ctrl+C to cancel\n'
+            for count in 10 9 8 7 6 5 4 3 2 1; do
+                printf '\033[0;34m  ℹ\033[0m %d\r' "$count"
                 sleep 1
-                count=$((count - 1))
             done
             echo ''
             sudo reboot
@@ -1088,10 +1103,10 @@ check_sudo() {
             exit 1
         fi
     else
-        # Cache sudo credentials upfront (asks password once)
-        printf '\033[0;34m  ℹ\033[0m Requesting sudo access...\n'
-        if ! sudo -v 2>/dev/null; then
-            printf '\033[0;31m  ✗\033[0m Failed to get sudo access\n'
+        # Cache sudo credentials upfront with visible prompt
+        printf '\033[0;34m  ℹ\033[0m Requesting sudo access (may prompt for password)...\n'
+        if ! sudo -v; then
+            printf '\033[0;31m  ✗\033[0m Failed to get sudo access - check password\n'
             exit 1
         fi
         printf '\033[0;32m  ✓\033[0m sudo access granted\n'
