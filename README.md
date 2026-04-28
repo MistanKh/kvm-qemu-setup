@@ -12,6 +12,8 @@ The repo currently has two setup paths:
   The original interactive shell installer. Useful as a compatibility fallback while the Python app grows.
 - `kvm-setup-tui`
   The new Python entry point. It can run as a readable CLI report by default or launch the full Textual TUI with `--run-tui`.
+- `./kvm-setup`
+  A repo-local Linux launcher that runs the Python app directly from the checkout and prefers `.venv/bin/python` when available.
 
 ## Goals
 
@@ -28,6 +30,13 @@ The repo currently has two setup paths:
 - Fedora and RHEL-based
 - openSUSE and SUSE-based
 - Alpine Linux
+
+There are two practical support levels:
+
+- `TUI / CLI support`
+  The Python interface is intended to run broadly on Linux distros as long as Python and the app dependencies are installed.
+- `Host-changing automation support`
+  Full KVM setup depends on distro family, package availability, init system, networking stack, and whether the machine is a real virtualization host.
 
 The widest support today is in audit and planning mode. Native Linux hosts with `systemd` are the best current target for applying changes.
 
@@ -60,6 +69,7 @@ As of April 28, 2026, the code has been validated in an Ubuntu WSL environment f
 
 - Linux host for real host changes
 - Python 3.10+
+- `pip` and virtual environment support recommended
 - `sudo` privileges for package installation and system configuration
 - Internet access for installing Python dependencies and virtualization packages
 
@@ -97,6 +107,50 @@ kvm-setup-tui
 kvm-setup-tui --run-tui
 ```
 
+## Fastest Local Run
+
+If you just cloned the repo and want to open the interface quickly on Linux:
+
+```bash
+git clone https://github.com/MistanKh/kvm-qemu-setup.git
+cd kvm-qemu-setup
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+chmod +x kvm-setup
+./kvm-setup --run-tui
+```
+
+The repo-local launcher also supports the CLI modes:
+
+```bash
+./kvm-setup
+./kvm-setup --audit-json
+./kvm-setup --apply --plan-json
+```
+
+## TUI Installation Notes
+
+The TUI is part of the Python app. If the interface does not start and complains about missing dependencies, install the project dependencies first:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+Then launch either with:
+
+```bash
+kvm-setup-tui --run-tui
+```
+
+or from the repo directly:
+
+```bash
+./kvm-setup --run-tui
+```
+
 ## CLI Usage
 
 The main entry point defaults to a plain-text audit and plan summary, which is useful for testing in minimal terminals, CI, or WSL.
@@ -108,6 +162,14 @@ kvm-setup-tui --apply --plan-json
 kvm-setup-tui --apply --bridge enp4s0
 kvm-setup-tui --apply --virtio
 kvm-setup-tui --run-tui
+```
+
+Equivalent repo-local launcher examples:
+
+```bash
+./kvm-setup
+./kvm-setup --run-tui
+./kvm-setup --apply --plan-json
 ```
 
 ### Useful flags
@@ -142,6 +204,12 @@ The TUI is designed to feel like a real setup console instead of a wall of promp
 - central plan table with selected/risk status
 - step detail panel for commands and notes
 - live log view during execution
+
+What to expect:
+
+- On most Linux distros, the TUI itself should launch and work for audit and planning.
+- On WSL or containerized environments, the TUI will still work, but apply-mode planning intentionally downgrades to warnings.
+- On native Linux hosts, supported distro families can move beyond planning into actual guided setup.
 
 ## Architecture
 
@@ -198,6 +266,16 @@ The new backend was tested against Ubuntu WSL with Python 3.12 using direct disc
 - running inside WSL
 
 And apply-mode planning correctly stopped at a WSL warning instead of pretending to be a native KVM host.
+
+You can still use WSL to inspect the TUI design itself:
+
+```bash
+cd "/mnt/c/Users/mista/My Projects/Cybersecurity/kvm-qemu-setup"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+./kvm-setup --run-tui
+```
 
 ## AUR Direction
 
