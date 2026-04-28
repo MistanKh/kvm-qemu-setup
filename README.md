@@ -56,6 +56,7 @@ As of April 28, 2026, the code has been validated in an Ubuntu WSL environment f
 
 - Host audit for distro, package manager, shell, virtualization, KVM, `systemd`, IOMMU, and WSL state
 - Distro-aware package planning
+- Distro-aware Python runtime bootstrap for the TUI and CLI
 - TUI layout with execution profile controls, host summary, plan table, step details, and live log output
 - Default safe behavior through audit-only mode
 - Optional TuneD setup for virtualization hosts
@@ -150,6 +151,24 @@ or from the repo directly:
 ```bash
 ./kvm-setup --run-tui
 ```
+
+## Installer-Assisted TUI Bootstrap
+
+The shell installer can now help bootstrap the Python side too.
+
+When you run:
+
+```bash
+./install-kvm.sh
+```
+
+it will offer to:
+
+- install distro-appropriate Python runtime packages
+- create a local `.venv`
+- install the app with `pip install -e .`
+
+That means the installer can prepare both the KVM host packages and the TUI environment in one flow when the repo is available locally.
 
 ## CLI Usage
 

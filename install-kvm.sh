@@ -23,6 +23,7 @@ VALIDATE_CMD="virt-host-validate"
 PACKAGES=""
 TUNED_PACKAGE=""
 IPTABLES_PACKAGE="iptables"
+PYTHON_RUNTIME_PACKAGES=""
 SHELL_NAME=""
 SHELL_EXT="sh"
 SHELL_RC="$HOME/.profile"
@@ -30,6 +31,7 @@ RUN_HOME="$HOME"
 CPU_VENDOR=""
 ARCH=""
 RUN_USER="${SUDO_USER:-${USER:-$(id -un 2>/dev/null)}}"
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 print_banner() {
     echo ""
@@ -235,36 +237,42 @@ configure_profile() {
             TUNED_PACKAGE=""
             LIBVIRT_SERVICE="libvirtd.service"
             IPTABLES_PACKAGE="iptables-nft"
+            PYTHON_RUNTIME_PACKAGES="python python-pip"
             ;;
         ubuntu|debian)
             PACKAGES="qemu-system-x86 libvirt-daemon-system virtinst virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools dnsmasq-base iptables"
             TUNED_PACKAGE="tuned"
             LIBVIRT_SERVICE="libvirtd.service"
             IPTABLES_PACKAGE="iptables"
+            PYTHON_RUNTIME_PACKAGES="python3 python3-pip python3-venv"
             ;;
         fedora|rhel)
             PACKAGES="qemu-kvm libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools dnsmasq iptables"
             TUNED_PACKAGE="tuned"
             LIBVIRT_SERVICE="libvirtd.service"
             IPTABLES_PACKAGE="iptables"
+            PYTHON_RUNTIME_PACKAGES="python3 python3-pip"
             ;;
         suse)
             PACKAGES="qemu-kvm libvirt virt-install virt-manager virt-viewer swtpm qemu-tools libosinfo dnsmasq iptables"
             TUNED_PACKAGE=""
             LIBVIRT_SERVICE="libvirtd.service"
             IPTABLES_PACKAGE="iptables"
+            PYTHON_RUNTIME_PACKAGES="python3 python3-pip python3-virtualenv"
             ;;
         alpine)
             PACKAGES="qemu-system-x86_64 libvirt virt-install qemu-img dnsmasq iptables"
             TUNED_PACKAGE=""
             LIBVIRT_SERVICE="libvirtd"
             IPTABLES_PACKAGE="iptables"
+            PYTHON_RUNTIME_PACKAGES="python3 py3-pip py3-virtualenv"
             ;;
         *)
             PACKAGES=""
             TUNED_PACKAGE=""
             LIBVIRT_SERVICE="libvirtd.service"
             IPTABLES_PACKAGE="iptables"
+            PYTHON_RUNTIME_PACKAGES="python3 python3-pip"
             ;;
     esac
 }
@@ -579,6 +587,14 @@ run_package_install() {
     esac
 }
 
+install_named_packages() {
+    TO_INSTALL=""
+    for pkg in $1; do
+        append_package_if_available "$pkg"
+    done
+    run_package_install
+}
+
 install_packages() {
     print_step 8 10 "Installing Packages"
     echo ""
@@ -608,8 +624,82 @@ install_packages() {
     fi
 }
 
+check_python_version() {
+    "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+}
+
+setup_python_tui() {
+    print_step 9 11 "Bootstrapping Python TUI Environment"
+    echo ""
+
+    setup_python_answer=""
+    ask_yes "Prepare Python dependencies for the TUI and CLI?" setup_python_answer
+    case "$setup_python_answer" in
+        Y|y) ;;
+        *) print_skip "Python dependency bootstrap skipped"; return ;;
+    esac
+
+    if [ -n "$PYTHON_RUNTIME_PACKAGES" ]; then
+        print_info "Checking Python runtime packages..."
+        install_named_packages "$PYTHON_RUNTIME_PACKAGES" || {
+            print_warning "Could not install all Python runtime packages automatically"
+        }
+    fi
+
+    PYTHON_BIN=""
+    if command_exists python3; then
+        PYTHON_BIN="python3"
+    elif command_exists python; then
+        PYTHON_BIN="python"
+    fi
+
+    if [ -z "$PYTHON_BIN" ]; then
+        print_error "Python 3 is not available after package installation"
+        return
+    fi
+
+    if ! check_python_version "$PYTHON_BIN"; then
+        print_warning "Detected Python is older than 3.10"
+        print_info "The TUI requires Python 3.10 or newer."
+        return
+    fi
+
+    if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
+        print_warning "pip is not available for $PYTHON_BIN"
+        print_info "Install the distro pip package and rerun the bootstrap step."
+        return
+    fi
+
+    if [ ! -f "$SCRIPT_DIR/pyproject.toml" ]; then
+        print_skip "pyproject.toml not found next to the installer - skipping local TUI bootstrap"
+        return
+    fi
+
+    VENV_DIR="$SCRIPT_DIR/.venv"
+    if [ ! -x "$VENV_DIR/bin/python" ]; then
+        print_info "Creating virtual environment in $VENV_DIR..."
+        if ! "$PYTHON_BIN" -m venv "$VENV_DIR" >/dev/null 2>&1; then
+            print_warning "python -m venv failed"
+            print_info "Your distro may need additional venv packages."
+            return
+        fi
+    else
+        print_skip "Virtual environment already exists"
+    fi
+
+    print_info "Installing Python app dependencies..."
+    if "$VENV_DIR/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 && \
+       "$VENV_DIR/bin/python" -m pip install -e "$SCRIPT_DIR" >/dev/null 2>&1; then
+        print_success "TUI environment is ready"
+        print_info "Launch with: $SCRIPT_DIR/kvm-setup --run-tui"
+    else
+        print_warning "Python dependency installation failed"
+        print_info "Try running: source .venv/bin/activate && pip install -e ."
+    fi
+}
+
 enable_libvirt_daemons() {
-    print_step 9 10 "Configuring Libvirt Services"
+    print_step 10 11 "Configuring Libvirt Services"
     echo ""
 
     if [ "$SYSTEMD_AVAILABLE" != "true" ]; then
@@ -895,7 +985,7 @@ setup_virtio_windows() {
 
 show_iommu_guide() {
     echo ""
-    print_step 10 10 "IOMMU Configuration (Optional)"
+    print_step 11 11 "IOMMU Configuration (Optional)"
     echo ""
 
     if [ "$IOMMU_ENABLED" = "true" ]; then
@@ -1046,6 +1136,7 @@ main() {
     check_iommu
     check_virt_manager
     install_packages
+    setup_python_tui
     enable_libvirt_daemons
     validate_host
     setup_tuned
