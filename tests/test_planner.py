@@ -8,6 +8,7 @@ def make_snapshot(**overrides: object) -> HostSnapshot:
     data = {
         "platform": "linux",
         "distro_id": "ubuntu",
+        "distro_family": "ubuntu",
         "distro_name": "Ubuntu",
         "distro_like": ("debian",),
         "package_manager": "apt",
@@ -24,6 +25,11 @@ def make_snapshot(**overrides: object) -> HostSnapshot:
         "sudo_available": True,
         "systemd_available": True,
         "running_in_wsl": False,
+        "running_in_container": False,
+        "run_user": "mistan",
+        "acl_available": True,
+        "iptables_available": True,
+        "nft_available": False,
         "notes": [],
     }
     data.update(overrides)
@@ -31,7 +37,7 @@ def make_snapshot(**overrides: object) -> HostSnapshot:
 
 
 def test_profile_falls_back_to_package_manager() -> None:
-    snapshot = make_snapshot(distro_id="unknown", distro_like=(), package_manager="pacman")
+    snapshot = make_snapshot(distro_id="unknown", distro_family=None, distro_like=(), package_manager="pacman")
     profile = get_profile(snapshot)
 
     assert profile is not None
@@ -55,3 +61,27 @@ def test_non_systemd_host_uses_manual_service_review() -> None:
 
     assert "Libvirt service review" in titles
     assert "Enable libvirt services" not in titles
+
+
+def test_container_apply_mode_stops_at_warning() -> None:
+    snapshot = make_snapshot(running_in_container=True)
+    plan = build_plan(snapshot, SetupOptions(audit_only=False))
+
+    assert len(plan) == 2
+    assert plan[1].title == "Container environment warning"
+
+
+def test_firewall_step_only_added_when_nft_without_iptables() -> None:
+    snapshot = make_snapshot(iptables_available=False, nft_available=True)
+    plan = build_plan(snapshot, SetupOptions(audit_only=False))
+    titles = [step.title for step in plan]
+
+    assert "Libvirt firewall backend" in titles
+
+
+def test_acl_review_when_setfacl_missing() -> None:
+    snapshot = make_snapshot(acl_available=False)
+    plan = build_plan(snapshot, SetupOptions(audit_only=False))
+    titles = [step.title for step in plan]
+
+    assert "VM image permissions review" in titles

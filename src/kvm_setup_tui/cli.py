@@ -74,7 +74,14 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.run_tui:
-        from kvm_setup_tui.app import main as run_tui
+        try:
+            from kvm_setup_tui.app import main as run_tui
+        except ModuleNotFoundError as exc:
+            missing = exc.name or "textual"
+            raise SystemExit(
+                f"TUI dependencies are missing ({missing}). Install the project dependencies first, "
+                "for example with: pip install -e ."
+            ) from exc
 
         run_tui()
         return

@@ -1,116 +1,97 @@
 #!/bin/sh
-# KVM Setup Script - POSIX compatible with bash/zsh/fish support
+# KVM Setup Script - professional cross-distro installer
 # Based on https://sysguides.com/install-kvm-on-linux
 
 REBOOT_NEEDED=false
-REBOOT_REASONS=''
+REBOOT_REASONS=""
 SKIP_REBOOT=false
 FORCE_REINSTALL=false
 INSTALL_QEMU=true
+IOMMU_ENABLED=false
+IS_WSL=false
+IS_CONTAINER=false
+SYSTEMD_AVAILABLE=false
 
-RED='[0;31m'
-GREEN='[0;32m'
-YELLOW='[1;33m'
-BLUE='[0;34m'
-CYAN='[0;36m'
-MAGENTA='[0;35m'
-BOLD='[1m'
-DIM='[2m'
-NC='[0m'
-
-is_bash() {
-    [ -n "$BASH_VERSION" ]
-}
-
-is_zsh() {
-    [ -n "$ZSH_VERSION" ]
-}
-
-is_fish() {
-    [ -n "$fish_version" ]
-}
-
-init_shell() {
-    if is_fish; then
-        exec bash "$0" "$@"
-        exit 1
-    fi
-    
-    if is_bash || is_zsh; then
-        :
-    else
-        SHELL_EXT="sh"
-        SHELL_NAME="sh"
-    fi
-    
-    # Get shell name without path - POSIX compatible
-    case "$SHELL" in
-        */*) SHELL_NAME=$(expr "$SHELL" : '.*/\(.*\)') ;;
-        *)   SHELL_NAME="${SHELL}"; [ -z "$SHELL_NAME" ] && SHELL_NAME="sh" ;;
-    esac
-    SHELL_EXT="${SHELL_EXT:-sh}"
-}
+OS=""
+OS_NAME=""
+PKG_MANAGER=""
+INSTALL_CMD=""
+UPDATE_CMD=""
+REINSTALL_SUPPORTED=false
+LIBVIRT_SERVICE=""
+VALIDATE_CMD="virt-host-validate"
+PACKAGES=""
+TUNED_PACKAGE=""
+IPTABLES_PACKAGE="iptables"
+SHELL_NAME=""
+SHELL_EXT="sh"
+SHELL_RC="$HOME/.profile"
+RUN_HOME="$HOME"
+CPU_VENDOR=""
+ARCH=""
+RUN_USER="${SUDO_USER:-${USER:-$(id -un 2>/dev/null)}}"
 
 print_banner() {
-    echo ''
+    echo ""
     printf '\033[0;36m'
     printf '%s\n' '╔════════════════════════════════════════════════════════════════╗'
     printf '%s\n' '║                                                                ║'
-    printf '%s\n' '║                     QEMU/KVM Setup Script                      ║'
+    printf '%s\n' '║                  KVM / QEMU Host Setup Studio                  ║'
     printf '%s\n' '║                                                                ║'
     printf '%s\n' '╠════════════════════════════════════════════════════════════════╣'
     printf '%s\n' '║                                                                ║'
-    printf '%s\n' '║            by Mistan Khomdram | github.com/MistanKh            ║'
+    printf '%s\n' '║            Smart setup for modern Linux virtualization         ║'
     printf '%s\n' '║                                                                ║'
     printf '%s\n' '╚════════════════════════════════════════════════════════════════╝'
     printf '\033[0m'
-    echo ''
+    echo ""
     printf '\033[2m   Based on: https://sysguides.com/install-kvm-on-linux\033[0m\n'
-    printf '\033[2m   Created with: https://opencode.ai\033[0m\n'
-    echo ''
+    printf '\033[2m   Maintainer: https://github.com/MistanKh\033[0m\n'
+    echo ""
 }
 
 print_step() {
     step=$1
     total=$2
     message=$3
-    dashes=$(printf '%50s' | tr ' ' '-')
-    echo ''
-    echo "[0;36m┌─[0m [1m${step}/${total}[0m ${message}[0m"
-    echo "[0;36m└─[0m [2m${dashes}[0m"
+    echo ""
+    printf '\033[0;36m┌─\033[0m \033[1m%s/%s\033[0m %s\n' "$step" "$total" "$message"
+    printf '\033[0;36m└─\033[0m \033[2m%s\033[0m\n' "--------------------------------------------------"
 }
 
 print_success() {
-    echo "[0;32m  ✓[0m $1"
+    printf '\033[0;32m  ✓\033[0m %s\n' "$1"
 }
 
 print_warning() {
-    echo "[1;33m  ⚠[0m $1"
+    printf '\033[1;33m  ⚠\033[0m %s\n' "$1"
 }
 
 print_error() {
-    echo "[0;31m  ✗[0m $1"
+    printf '\033[0;31m  ✗\033[0m %s\n' "$1"
 }
 
 print_info() {
-    echo "[0;34m  ℹ[0m $1"
+    printf '\033[0;34m  ℹ\033[0m %s\n' "$1"
 }
 
 print_skip() {
-    echo "[2m  ➜[0m $1"
+    printf '\033[2m  ➜\033[0m %s\n' "$1"
+}
+
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
 }
 
 need_reboot() {
     reason=$1
-    # Check if reason already exists (simple substring match)
     case "$REBOOT_REASONS" in
         *"$reason"*) ;;
-        *) 
-            if [ -z "$REBOOT_REASONS" ]; then
-                REBOOT_REASONS="$reason"
-            else
-                REBOOT_REASONS="${REBOOT_REASONS}|${reason}"
-            fi
+        "")
+            REBOOT_REASONS=$reason
+            ;;
+        *)
+            REBOOT_REASONS="${REBOOT_REASONS}|${reason}"
             ;;
     esac
     REBOOT_NEEDED=true
@@ -118,17 +99,16 @@ need_reboot() {
 
 ask() {
     prompt=$1
-    default=${2:-N}
+    default=$2
     options=$3
-    
-    printf '  [1m%s [%s]: [0m' "$prompt" "$options"
+    target=$4
+
+    printf '  \033[1m%s [%s]: \033[0m' "$prompt" "$options"
     read answer
-    
     if [ -z "$answer" ]; then
         answer=$default
     fi
-    
-    eval "$4=\$answer"
+    eval "$target=\$answer"
 }
 
 ask_yes() {
@@ -139,1069 +119,915 @@ ask_no() {
     ask "$1" "N" "y/[N]" "$2"
 }
 
-detect_os() {
-    print_step 1 10 "Detecting Operating System"
-    echo ''
-    
-    if [ -f /etc/arch-release ]; then
-        OS=arch
-        OS_NAME="Arch Linux"
-    elif [ -f /etc/debian_version ]; then
-        OS=debian
-        if [ -f /etc/lsb-release ]; then
-            . /etc/lsb-release
-            case "$DISTRIB_ID" in
-                Ubuntu) OS=ubuntu; OS_NAME="Ubuntu" ;;
-                *) OS_NAME="Debian" ;;
-            esac
-        else
-            OS_NAME="Debian"
-        fi
-    elif [ -f /etc/fedora-release ]; then
-        OS=fedora
-        OS_NAME="Fedora"
-    elif [ -f /etc/rocky-release ] || [ -f /etc/centos-release ]; then
-        OS=rhel
-        OS_NAME="RHEL-based"
+init_shell() {
+    if [ -n "$RUN_USER" ] && command_exists getent; then
+        RUN_HOME=$(getent passwd "$RUN_USER" 2>/dev/null | awk -F: 'NR==1 {print $6}')
+        RUN_LOGIN_SHELL=$(getent passwd "$RUN_USER" 2>/dev/null | awk -F: 'NR==1 {print $7}')
     else
-        echo ''
-        print_error "Unsupported OS detected"
-        printf '[2m  This script supports:[0m\n'
-        printf '[2m  • Arch Linux[0m\n'
-        printf '[2m  • Debian[0m\n'
-        printf '[2m  • Ubuntu[0m\n'
-        printf '[2m  • Fedora[0m\n'
-        printf '[2m  • RHEL-based (Rocky, Alma, CentOS)[0m\n'
-        exit 1
+        RUN_LOGIN_SHELL=""
     fi
-    
-    print_success "Detected: [1m${OS_NAME}[0m"
-}
 
-detect_shell() {
-    print_step 2 10 "Detecting Shell"
-    echo ''
-    
-    # Get shell name without path - POSIX compatible
-    case "$SHELL" in
-        */*) SHELL_NAME=$(expr "$SHELL" : '.*/\(.*\)') ;;
-        *)   SHELL_NAME="${SHELL}"; [ -z "$SHELL_NAME" ] && SHELL_NAME="sh" ;;
+    [ -n "$RUN_HOME" ] || RUN_HOME="$HOME"
+
+    case "${RUN_LOGIN_SHELL:-${SHELL:-}}" in
+        */*) SHELL_NAME=$(basename "${RUN_LOGIN_SHELL:-$SHELL}") ;;
+        "") SHELL_NAME="sh" ;;
+        *) SHELL_NAME="${RUN_LOGIN_SHELL:-$SHELL}" ;;
     esac
-    
+
     case "$SHELL_NAME" in
         bash)
-            SHELL_RC="$HOME/.bashrc"
             SHELL_EXT="bash"
+            SHELL_RC="$RUN_HOME/.bashrc"
             ;;
         zsh)
-            SHELL_RC="$HOME/.zshrc"
             SHELL_EXT="zsh"
+            SHELL_RC="$RUN_HOME/.zshrc"
             ;;
         fish)
-            SHELL_RC="$HOME/.config/fish/config.fish"
             SHELL_EXT="fish"
+            SHELL_RC="$RUN_HOME/.config/fish/config.fish"
             ;;
         *)
-            SHELL_RC="$HOME/.bashrc"
-            SHELL_EXT="bash"
+            SHELL_EXT="sh"
+            SHELL_RC="$RUN_HOME/.profile"
             ;;
     esac
-    
-    print_success "Shell: [1m${SHELL_NAME}[0m"
-    print_info "Config: ${SHELL_RC}"
 }
 
 add_to_shell_config() {
     line=$1
-    
+
     case "$SHELL_EXT" in
         fish)
-            mkdir -p "$(dirname "$SHELL_RC")" 2>/dev/null
-            if ! grep -qF -- "$line" "$SHELL_RC" 2>/dev/null; then
-                echo "$line" >> "$SHELL_RC"
-            fi
+            mkdir -p "$(dirname "$SHELL_RC")" 2>/dev/null || true
+            ;;
+    esac
+
+    if ! grep -qF -- "$line" "$SHELL_RC" 2>/dev/null; then
+        printf '%s\n' "$line" >> "$SHELL_RC"
+    fi
+}
+
+read_os_release() {
+    [ -f /etc/os-release ] || return 1
+    OS_ID=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -n 1)
+    OS_PRETTY=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"' | head -n 1)
+    OS_LIKE=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -n 1)
+    [ -n "$OS_PRETTY" ] || OS_PRETTY=$OS_ID
+    return 0
+}
+
+normalize_os() {
+    candidate=$1
+    case "$candidate" in
+        arch|archlinux) echo "arch" ;;
+        ubuntu) echo "ubuntu" ;;
+        debian|linuxmint|pop|elementary|zorin|kali|neon) echo "debian" ;;
+        fedora) echo "fedora" ;;
+        rhel|centos|rocky|almalinux|alma|ol|oracle) echo "rhel" ;;
+        opensuse*|suse|sled|sles) echo "suse" ;;
+        alpine) echo "alpine" ;;
+        *) echo "" ;;
+    esac
+}
+
+detect_package_manager() {
+    if command_exists apt-get; then
+        PKG_MANAGER="apt"
+        INSTALL_CMD="apt-get install -y"
+        UPDATE_CMD="apt-get update"
+        REINSTALL_SUPPORTED=true
+    elif command_exists dnf; then
+        PKG_MANAGER="dnf"
+        INSTALL_CMD="dnf install -y"
+        UPDATE_CMD=""
+        REINSTALL_SUPPORTED=true
+    elif command_exists yum; then
+        PKG_MANAGER="yum"
+        INSTALL_CMD="yum install -y"
+        UPDATE_CMD="yum makecache"
+        REINSTALL_SUPPORTED=true
+    elif command_exists pacman; then
+        PKG_MANAGER="pacman"
+        INSTALL_CMD="pacman -S --noconfirm --needed"
+        UPDATE_CMD=""
+        REINSTALL_SUPPORTED=true
+    elif command_exists zypper; then
+        PKG_MANAGER="zypper"
+        INSTALL_CMD="zypper --non-interactive install"
+        UPDATE_CMD="zypper --non-interactive refresh"
+        REINSTALL_SUPPORTED=true
+    elif command_exists apk; then
+        PKG_MANAGER="apk"
+        INSTALL_CMD="apk add"
+        UPDATE_CMD="apk update"
+        REINSTALL_SUPPORTED=false
+    else
+        PKG_MANAGER=""
+    fi
+}
+
+configure_profile() {
+    case "$OS" in
+        arch)
+            PACKAGES="qemu-full libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm guestfs-tools libosinfo dnsmasq iptables-nft"
+            TUNED_PACKAGE=""
+            LIBVIRT_SERVICE="libvirtd.service"
+            IPTABLES_PACKAGE="iptables-nft"
+            ;;
+        ubuntu|debian)
+            PACKAGES="qemu-system-x86 libvirt-daemon-system virtinst virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools dnsmasq-base iptables"
+            TUNED_PACKAGE="tuned"
+            LIBVIRT_SERVICE="libvirtd.service"
+            IPTABLES_PACKAGE="iptables"
+            ;;
+        fedora|rhel)
+            PACKAGES="qemu-kvm libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools dnsmasq iptables"
+            TUNED_PACKAGE="tuned"
+            LIBVIRT_SERVICE="libvirtd.service"
+            IPTABLES_PACKAGE="iptables"
+            ;;
+        suse)
+            PACKAGES="qemu-kvm libvirt virt-install virt-manager virt-viewer swtpm qemu-tools libosinfo dnsmasq iptables"
+            TUNED_PACKAGE=""
+            LIBVIRT_SERVICE="libvirtd.service"
+            IPTABLES_PACKAGE="iptables"
+            ;;
+        alpine)
+            PACKAGES="qemu-system-x86_64 libvirt virt-install qemu-img dnsmasq iptables"
+            TUNED_PACKAGE=""
+            LIBVIRT_SERVICE="libvirtd"
+            IPTABLES_PACKAGE="iptables"
             ;;
         *)
-            if ! grep -qF -- "$line" "$SHELL_RC" 2>/dev/null; then
-                echo "$line" >> "$SHELL_RC"
-            fi
+            PACKAGES=""
+            TUNED_PACKAGE=""
+            LIBVIRT_SERVICE="libvirtd.service"
+            IPTABLES_PACKAGE="iptables"
             ;;
     esac
 }
 
+detect_environment_flags() {
+    uname_r=$(uname -r 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    if printf '%s' "$uname_r" | grep -Eq 'microsoft|wsl'; then
+        IS_WSL=true
+    elif grep -qi 'microsoft\|wsl' /proc/version 2>/dev/null; then
+        IS_WSL=true
+    fi
+
+    if [ "$IS_WSL" != "true" ]; then
+        if command_exists systemd-detect-virt && systemd-detect-virt -q -c 2>/dev/null; then
+            IS_CONTAINER=true
+        elif [ -f /.dockerenv ] || [ -f /run/.containerenv ]; then
+            IS_CONTAINER=true
+        fi
+    fi
+
+    if command_exists systemctl && [ -d /run/systemd/system ]; then
+        SYSTEMD_AVAILABLE=true
+    fi
+}
+
+detect_os() {
+    print_step 1 10 "Detecting Operating System"
+    echo ""
+
+    read_os_release || true
+    detect_package_manager
+
+    OS=$(normalize_os "${OS_ID:-}")
+    if [ -z "$OS" ] && [ -n "${OS_LIKE:-}" ]; then
+        for candidate in $OS_LIKE; do
+            OS=$(normalize_os "$candidate")
+            [ -n "$OS" ] && break
+        done
+    fi
+
+    if [ -z "$OS" ]; then
+        case "$PKG_MANAGER" in
+            pacman) OS="arch" ;;
+            apt) OS="debian" ;;
+            dnf) OS="fedora" ;;
+            yum) OS="rhel" ;;
+            zypper) OS="suse" ;;
+            apk) OS="alpine" ;;
+        esac
+    fi
+
+    OS_NAME=${OS_PRETTY:-$OS}
+    detect_environment_flags
+    configure_profile
+
+    if [ -z "$OS" ] || [ -z "$PKG_MANAGER" ]; then
+        print_error "Unsupported or unrecognized Linux distribution"
+        print_info "The script needs a known package manager and libvirt package profile."
+        exit 1
+    fi
+
+    print_success "Detected: ${OS_NAME}"
+    print_info "Package manager: $PKG_MANAGER"
+    if [ "$IS_WSL" = "true" ]; then
+        print_warning "WSL detected - useful for audits, but not a real KVM host target"
+    fi
+    if [ "$IS_CONTAINER" = "true" ]; then
+        print_warning "Container environment detected - host virtualization may be unavailable"
+    fi
+}
+
+detect_shell() {
+    print_step 2 10 "Detecting Shell"
+    echo ""
+    print_success "Shell: ${SHELL_NAME}"
+    print_info "Config: ${SHELL_RC}"
+}
+
 check_architecture() {
     print_step 3 10 "Checking System Architecture"
-    echo ''
-    
-    ARCH=$(uname -m)
+    echo ""
+    ARCH=$(uname -m 2>/dev/null)
     case "$ARCH" in
-        x86_64)
-            print_success "Architecture: x86_64 (64-bit)"
-            ;;
-        aarch64)
-            print_success "Architecture: aarch64 (ARM 64-bit)"
+        x86_64|aarch64)
+            print_success "Architecture: ${ARCH}"
             ;;
         *)
-            print_error "Unsupported architecture: $ARCH"
-            print_info "KVM requires x86_64 or aarch64"
-            exit 1
+            print_warning "Architecture $ARCH may have limited KVM support"
             ;;
     esac
 }
 
 check_virtualization() {
     print_step 4 10 "Checking Hardware Virtualization"
-    echo ''
-    
-    if ! command -v lscpu >/dev/null 2>&1; then
-        print_warning "lscpu not found - skipping virtualization check"
-        print_info "Install util-linux package if issues occur"
+    echo ""
+
+    if ! command_exists lscpu; then
+        print_warning "lscpu not found - skipping detailed virtualization check"
         return
     fi
-    
-    VIRT_SUPPORT=$(lscpu 2>/dev/null | grep -i virtualization | head -1)
-    CPU_VENDOR=$(lscpu 2>/dev/null | grep -i "Vendor ID" | awk '{print $NF}')
-    
+
+    VIRT_SUPPORT=$(lscpu 2>/dev/null | awk -F: '/Virtualization:/ {gsub(/^[ \t]+/,"",$2); print $2; exit}')
+    CPU_VENDOR=$(lscpu 2>/dev/null | awk -F: '/Vendor ID:/ {gsub(/^[ \t]+/,"",$2); print $2; exit}')
+
     case "$VIRT_SUPPORT" in
-        *VT-x*)
-            print_success "Intel VT-x: [1mENABLED[0m"
-            print_info "Hardware virtualization ready for Intel CPUs"
+        VT-x)
+            print_success "Intel VT-x detected"
             ;;
-        *AMD-V*)
-            print_success "AMD-V: [1mENABLED[0m"
-            print_info "Hardware virtualization ready for AMD CPUs"
+        AMD-V)
+            print_success "AMD-V detected"
             ;;
         "")
-            if [ -n "$CPU_VENDOR" ]; then
-                print_error "Hardware virtualization: DISABLED or NOT SUPPORTED"
-                echo ''
-                print_warning "Please enable virtualization in BIOS/UEFI:"
-                printf '[2m  • Intel CPUs: Enable VT-x (Intel Virtualization Technology)[0m\n'
-                printf '[2m  • AMD CPUs: Enable AMD-V (SVM Mode)[0m\n'
-                echo ''
-                
-                continue_prompt=''
-                ask_no "Continue anyway?" continue_prompt
-                case "$continue_prompt" in
-                    Y|y) ;;
-                    *) echo -e "\n[0;31mExiting...[0m"; exit 1 ;;
-                esac
+            if [ "$IS_WSL" = "true" ]; then
+                print_skip "Virtualization passthrough details are limited in WSL"
             else
-                print_skip "Could not determine CPU virtualization status"
+                print_warning "Could not confirm hardware virtualization from lscpu"
             fi
+            ;;
+        *)
+            print_info "Virtualization capability: $VIRT_SUPPORT"
             ;;
     esac
 }
 
 check_kvm_modules() {
     print_step 5 10 "Checking KVM Kernel Modules"
-    echo ''
-    
-    # Check if we have modinfo
-    if ! command -v modinfo >/dev/null 2>&1; then
-        print_warning "modinfo not found - cannot verify KVM modules"
-        print_info "KVM may still work on this system"
+    echo ""
+
+    if ! command_exists modinfo; then
+        print_warning "modinfo not found - skipping kernel module verification"
         return
     fi
-    
+
     if ! modinfo kvm >/dev/null 2>&1; then
-        print_error "KVM kernel module not available"
-        print_info "Your kernel may not support KVM"
+        print_error "KVM kernel module is not available"
+        if [ "$IS_WSL" = "true" ]; then
+            print_info "That is expected in many WSL setups."
+            return
+        fi
+        print_info "Your running kernel may not support KVM."
         exit 1
     fi
-    print_success "KVM module: Available"
-    
-    # CPU_VENDOR might be empty if lscpu failed
+
+    print_success "KVM module is available"
+
     if [ -z "$CPU_VENDOR" ]; then
-        # Try to detect from /proc/cpuinfo
-        CPU_VENDOR=$(grep -m1 "vendor_id" /proc/cpuinfo 2>/dev/null | awk -F: '{print $2}' | tr -d ' ')
+        CPU_VENDOR=$(awk -F: '/vendor_id/ {gsub(/^[ \t]+/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
     fi
-    
+
+    if ! command_exists lsmod; then
+        print_skip "lsmod not found - cannot confirm whether vendor modules are loaded"
+        return
+    fi
+
     case "$CPU_VENDOR" in
         *Intel*|*GenuineIntel*)
-            if modinfo kvm-intel >/dev/null 2>&1; then
-                if lsmod | grep -q "^kvm-intel"; then
-                    print_success "kvm-intel module: [1mLOADED[0m"
+            if modinfo kvm_intel >/dev/null 2>&1 2>/dev/null || modinfo kvm-intel >/dev/null 2>&1; then
+                if lsmod | grep -Eq '^kvm_intel|^kvm-intel'; then
+                    print_success "Intel KVM module is loaded"
                 else
-                    print_warning "kvm-intel module: Available but not loaded"
-                    print_info "Attempting to load module..."
-                    if sudo modprobe kvm-intel 2>/dev/null; then
-                        print_success "kvm-intel loaded successfully"
-                    else
-                        print_error "Failed to load kvm-intel"
-                        print_info "VT-x may be disabled in BIOS"
-                    fi
+                    print_warning "Intel KVM module is available but not loaded"
                 fi
             fi
             ;;
         *AMD*|*AuthenticAMD*)
-            if modinfo kvm-amd >/dev/null 2>&1; then
-                if lsmod | grep -q "^kvm-amd"; then
-                    print_success "kvm-amd module: [1mLOADED[0m"
+            if modinfo kvm_amd >/dev/null 2>&1 2>/dev/null || modinfo kvm-amd >/dev/null 2>&1; then
+                if lsmod | grep -Eq '^kvm_amd|^kvm-amd'; then
+                    print_success "AMD KVM module is loaded"
                 else
-                    print_warning "kvm-amd module: Available but not loaded"
-                    print_info "Attempting to load module..."
-                    if sudo modprobe kvm-amd 2>/dev/null; then
-                        print_success "kvm-amd loaded successfully"
-                    else
-                        print_error "Failed to load kvm-amd"
-                        print_info "AMD-V may be disabled in BIOS"
-                    fi
+                    print_warning "AMD KVM module is available but not loaded"
                 fi
             fi
             ;;
         *)
-            print_skip "Could not detect CPU vendor for KVM module check"
+            print_skip "CPU vendor could not be determined for vendor module checks"
             ;;
     esac
 }
 
 check_iommu() {
     print_step 6 10 "Checking IOMMU Support"
-    echo ''
-    
-    IOMMU_ENABLED=false
-    
-    # Check kernel cmdline first (always accessible)
-    if [ -f /proc/cmdline ] && grep -q "intel_iommu=on\|amd_iommu=on\|iommu=on" /proc/cmdline; then
-        print_success "IOMMU: [1mENABLED[0m"
+    echo ""
+
+    if grep -Eq 'intel_iommu=on|amd_iommu=on|iommu=on' /proc/cmdline 2>/dev/null; then
         IOMMU_ENABLED=true
+        print_success "IOMMU is enabled"
         return
     fi
-    
-    # Try dmesg if available (may be restricted)
-    if command -v dmesg >/dev/null 2>&1; then
-        if dmesg 2>/dev/null | grep -qi "DMAR\|IOMMU"; then
-            print_warning "IOMMU: Detected in hardware but not enabled in kernel"
-            print_info "Required for PCIe passthrough (GPU, USB, etc.)"
-            return
-        fi
+
+    if command_exists dmesg && dmesg 2>/dev/null | grep -qi 'DMAR\|IOMMU'; then
+        print_warning "IOMMU-capable hardware detected but not clearly enabled in the kernel"
+        return
     fi
-    
-    print_skip "IOMMU: Not detected or not enabled"
-    print_info "Enable only if you need GPU/PCIe passthrough"
+
+    print_skip "IOMMU is not enabled"
+    print_info "That is only required for passthrough workloads such as GPU assignment."
 }
 
 check_virt_manager() {
     print_step 7 10 "Checking Existing Installation"
-    echo ''
-    
-    if command -v virt-manager >/dev/null 2>&1; then
-        print_success "virt-manager: Already installed"
+    echo ""
+
+    if command_exists virt-manager; then
+        print_success "virt-manager is already installed"
         if [ "$FORCE_REINSTALL" = "true" ]; then
-            print_info "Force reinstall enabled"
             INSTALL_QEMU=true
+            print_info "Force reinstall enabled"
         else
-            reinstall=''
-            ask_no "Update/reinstall packages?" reinstall
+            reinstall=""
+            ask_no "Update or reinstall packages?" reinstall
             case "$reinstall" in
                 Y|y) INSTALL_QEMU=true ;;
                 *) INSTALL_QEMU=false ;;
             esac
         fi
     else
-        print_info "virt-manager: Not found"
+        print_info "virt-manager is not installed"
         INSTALL_QEMU=true
     fi
 }
 
 check_package_installed() {
     pkg=$1
-    case "$OS" in
-        arch)
+    case "$PKG_MANAGER" in
+        pacman)
             pacman -Q "$pkg" >/dev/null 2>&1
             ;;
-        debian|ubuntu)
-            dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"
+        apt)
+            dpkg -s "$pkg" >/dev/null 2>&1
             ;;
-        fedora|rhel)
+        dnf|yum)
             rpm -q "$pkg" >/dev/null 2>&1
+            ;;
+        zypper)
+            rpm -q "$pkg" >/dev/null 2>&1
+            ;;
+        apk)
+            apk info -e "$pkg" >/dev/null 2>&1
+            ;;
+        *)
+            return 1
             ;;
     esac
 }
 
-install_if_missing() {
+append_package_if_available() {
     pkg=$1
     if check_package_installed "$pkg"; then
         print_skip "$pkg (already installed)"
-        return 1
     else
-        print_info "Installing $pkg"
+        TO_INSTALL="$TO_INSTALL $pkg"
+    fi
+}
+
+run_package_update() {
+    [ -n "$UPDATE_CMD" ] || return 0
+    print_info "Refreshing package metadata..."
+    sudo sh -c "$UPDATE_CMD" >/dev/null 2>&1 || print_warning "Package metadata refresh failed"
+}
+
+run_package_install() {
+    if [ -z "$TO_INSTALL" ]; then
+        print_success "All required packages already appear to be installed"
         return 0
     fi
+
+    print_info "Installing:$TO_INSTALL"
+
+    case "$PKG_MANAGER" in
+        pacman)
+            if [ "$FORCE_REINSTALL" = "true" ]; then
+                sudo pacman -S --noconfirm $TO_INSTALL
+            else
+                sudo pacman -S --noconfirm --needed $TO_INSTALL
+            fi
+            ;;
+        apt)
+            if [ "$FORCE_REINSTALL" = "true" ]; then
+                sudo apt-get install -y --reinstall $TO_INSTALL
+            else
+                sudo apt-get install -y $TO_INSTALL
+            fi
+            ;;
+        dnf)
+            if [ "$FORCE_REINSTALL" = "true" ]; then
+                sudo dnf reinstall -y $TO_INSTALL || sudo dnf install -y $TO_INSTALL
+            else
+                sudo dnf install -y $TO_INSTALL
+            fi
+            ;;
+        yum)
+            if [ "$FORCE_REINSTALL" = "true" ]; then
+                sudo yum reinstall -y $TO_INSTALL || sudo yum install -y $TO_INSTALL
+            else
+                sudo yum install -y $TO_INSTALL
+            fi
+            ;;
+        zypper)
+            if [ "$FORCE_REINSTALL" = "true" ]; then
+                sudo zypper --non-interactive install --force $TO_INSTALL
+            else
+                sudo zypper --non-interactive install $TO_INSTALL
+            fi
+            ;;
+        apk)
+            sudo apk add $TO_INSTALL
+            ;;
+        *)
+            print_error "No install strategy defined for package manager $PKG_MANAGER"
+            return 1
+            ;;
+    esac
 }
 
 install_packages() {
     print_step 8 10 "Installing Packages"
-    echo ''
-    
+    echo ""
+
     if [ "$INSTALL_QEMU" != "true" ]; then
-        print_skip "Package installation skipped (already installed)"
-        print_info "Run with --reinstall to force update"
+        print_skip "Package installation skipped"
         return
     fi
-    
-    to_install=''
-    
-    case "$OS" in
-        arch)
-            print_info "Distribution: Arch Linux"
-            packages='qemu-full libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools libosinfo'
-            for pkg in $packages; do
-                if install_if_missing "$pkg"; then
-                    to_install="$to_install $pkg"
-                fi
-            done
-            
-            if [ -n "$to_install" ]; then
-                echo ''
-                print_info "Installing:${to_install}"
-                sudo pacman -S --noconfirm $to_install
-                need_reboot "New virtualization packages installed"
-            else
-                print_success "All packages already installed!"
-            fi
-            
-            if command -v yay >/dev/null 2>&1 || command -v paru >/dev/null 2>&1; then
-                aur_helper=''
-                command -v yay >/dev/null 2>&1 && aur_helper=yay || aur_helper=paru
-                if install_if_missing "tuned"; then
-                    print_info "Installing tuned from AUR..."
-                    if ! sudo "$aur_helper" -S --noconfirm tuned 2>/dev/null; then
-                        print_error "Failed to install tuned from AUR"
-                    fi
-                fi
-            else
-                print_skip "tuned not in official repos (AUR helper needed)"
-                print_info "Install yay or paru to enable TuneD support"
-            fi
-            ;;
-        debian|ubuntu)
-            print_info "Distribution: Debian/Ubuntu"
-            packages='qemu-system-x86 libvirt-daemon-system virtinst virt-manager virt-viewer ovmf swtpm qemu-utils guestfs-tools tuned'
-            for pkg in $packages; do
-                if install_if_missing "$pkg"; then
-                    to_install="$to_install $pkg"
-                fi
-            done
-            
-            # libosinfo-bin may not exist on all Ubuntu versions
-            if install_if_missing "libosinfo-bin" 2>/dev/null; then
-                to_install="$to_install libosinfo-bin"
-            fi
-            
-            if [ -n "$to_install" ]; then
-                echo ''
-                print_info "Updating package lists..."
-                if ! sudo apt update -qq 2>/dev/null; then
-                    print_warning "apt update failed - continuing anyway"
-                fi
-                print_info "Installing:${to_install}"
-                install_output=$(sudo apt install -y $to_install 2>&1) || true
-                if echo "$install_output" | grep -qi "error\|failed\|could not"; then
-                    print_warning "Some packages may have failed to install"
-                fi
-                need_reboot "New virtualization packages installed"
-            else
-                print_success "All packages already installed!"
-            fi
-            ;;
-        fedora|rhel)
-            print_info "Distribution: Fedora/RHEL"
-            packages='qemu-kvm libvirt virt-install virt-manager virt-viewer edk2-ovmf swtpm qemu-img guestfs-tools tuned'
-            for pkg in $packages; do
-                if install_if_missing "$pkg"; then
-                    to_install="$to_install $pkg"
-                fi
-            done
-            
-            # libosinfo might be named differently
-            if install_if_missing "libosinfo" 2>/dev/null; then
-                to_install="$to_install libosinfo"
-            fi
-            
-            if [ -n "$to_install" ]; then
-                echo ''
-                print_info "Installing:${to_install}"
-                install_output=$(sudo dnf install -y $to_install 2>&1) || true
-                if echo "$install_output" | grep -qi "error"; then
-                    print_warning "Some packages may have failed to install"
-                fi
-                need_reboot "New virtualization packages installed"
-            else
-                print_success "All packages already installed!"
-            fi
-            ;;
-    esac
-    
-    print_success "Package installation complete!"
-}
 
-is_service_active() {
-    svc=$1
-    timeout 5 systemctl is-active "$svc" >/dev/null 2>&1
-}
+    TO_INSTALL=""
+    run_package_update
 
-is_service_enabled() {
-    svc=$1
-    timeout 5 systemctl is-enabled "$svc" >/dev/null 2>&1
-}
+    for pkg in $PACKAGES; do
+        append_package_if_available "$pkg"
+    done
 
-run_systemd() {
-    cmd=$1
-    timeout 30 sudo $cmd >/dev/null 2>&1
+    if [ -n "$TUNED_PACKAGE" ] && ! check_package_installed "$TUNED_PACKAGE"; then
+        TO_INSTALL="$TO_INSTALL $TUNED_PACKAGE"
+    fi
+
+    if run_package_install; then
+        [ -n "$TO_INSTALL" ] && need_reboot "Virtualization packages were installed or refreshed"
+        print_success "Package installation step complete"
+    else
+        print_error "Package installation failed"
+        exit 1
+    fi
 }
 
 enable_libvirt_daemons() {
     print_step 9 10 "Configuring Libvirt Services"
-    echo ''
-    
-    newly_enabled=false
-    failed_services=""
-    
-    case "$OS" in
-        arch|fedora|rhel)
-            for drv in qemu interface network nodedev nwfilter secret storage; do
-                svc="virt${drv}d.service"
-                
-                # Socket variants: base, read-only, admin
-                socket="virt${drv}d.socket"
-                socket_ro="virt${drv}d-ro.socket"
-                socket_admin="virt${drv}d-admin.socket"
-                
-                all_active=true
-                for s in "$socket" "$socket_ro" "$socket_admin"; do
-                    if ! is_service_active "$s" && ! is_service_active "$svc"; then
-                        all_active=false
-                        break
-                    fi
-                done
-                
-                if is_service_active "$svc" || [ "$all_active" = "true" ]; then
-                    print_skip "virt${drv}d: already active"
-                elif is_service_enabled "$svc"; then
-                    print_info "Starting virt${drv}d..."
-                    if ! run_systemd "systemctl start $svc"; then
-                        print_warning "Timeout/failed starting virt${drv}d"
-                        failed_services="${failed_services} virt${drv}d"
-                    fi
-                else
-                    print_info "Enabling virt${drv}d..."
-                    if run_systemd "systemctl enable --now $svc"; then
-                        newly_enabled=true
-                    else
-                        # Try sockets as fallback
-                        enabled_any=false
-                        for s in "$socket" "$socket_ro" "$socket_admin"; do
-                            if run_systemd "systemctl enable --now $s"; then
-                                newly_enabled=true
-                                enabled_any=true
-                            fi
-                        done
-                        if [ "$enabled_any" = "false" ]; then
-                            print_warning "Failed to enable virt${drv}d (timeout or error)"
-                            failed_services="${failed_services} virt${drv}d"
-                        fi
-                    fi
-                fi
-            done
-            ;;
-        debian|ubuntu)
-            if is_service_active "libvirtd.service"; then
-                print_skip "libvirtd: already active"
-            elif is_service_enabled "libvirtd.service"; then
-                print_info "Starting libvirtd..."
-                if ! run_systemd "systemctl start libvirtd.service"; then
-                    print_warning "Timeout/failed starting libvirtd"
-                fi
-            else
-                print_info "Enabling libvirtd..."
-                if run_systemd "systemctl enable --now libvirtd.service"; then
-                    newly_enabled=true
-                else
-                    print_warning "Failed to enable libvirtd (timeout or error)"
-                fi
-            fi
-            ;;
-    esac
-    
-    if [ -n "$failed_services" ]; then
-        printf '\033[1;33m  ⚠\033[0m Some services failed: %s\n' "$failed_services"
-        printf '\033[0;34m  ℹ\033[0m You may need to enable them manually after reboot\n'
+    echo ""
+
+    if [ "$SYSTEMD_AVAILABLE" != "true" ]; then
+        print_warning "systemd is not active on this host"
+        print_info "You may need to start libvirt manually using your init system."
+        return
     fi
-    
-    if [ "$newly_enabled" = "true" ]; then
-        need_reboot "New libvirt services enabled"
+
+    if [ -z "$LIBVIRT_SERVICE" ]; then
+        LIBVIRT_SERVICE="libvirtd.service"
     fi
-    
-    print_success "Libvirt services configured!"
+
+    if systemctl is-active "$LIBVIRT_SERVICE" >/dev/null 2>&1; then
+        print_skip "$LIBVIRT_SERVICE is already active"
+    else
+        print_info "Enabling and starting $LIBVIRT_SERVICE..."
+        if sudo systemctl enable --now "$LIBVIRT_SERVICE" >/dev/null 2>&1; then
+            print_success "$LIBVIRT_SERVICE is enabled"
+            need_reboot "Libvirt services were enabled"
+        else
+            print_warning "Could not enable $LIBVIRT_SERVICE automatically"
+        fi
+    fi
+
+    for socket in virtqemud.socket virtnetworkd.socket virtstoraged.socket; do
+        if systemctl list-unit-files "$socket" >/dev/null 2>&1; then
+            sudo systemctl enable --now "$socket" >/dev/null 2>&1 || true
+        fi
+    done
+
+    print_success "Libvirt service setup complete"
 }
 
 validate_host() {
-    echo ''
+    echo ""
     print_info "Running virtualization validation..."
-    
-    if ! command -v virt-host-validate >/dev/null 2>&1; then
-        print_skip "virt-host-validate not available (install libvirt-client)"
+
+    if ! command_exists "$VALIDATE_CMD"; then
+        print_skip "$VALIDATE_CMD is not available"
         return
     fi
-    
-    echo ''
-    output=$(sudo virt-host-validate qemu 2>&1) || true
-    
-    if echo "$output" | grep -qi "FAIL"; then
-        print_warning "Some validation checks failed:"
-        echo "$output" | grep -i "fail" | sed 's/^/  /' | head -n 5
-    elif echo "$output" | grep -qi "WARN"; then
-        print_info "Validation completed with warnings (usually safe to proceed)"
+
+    output=$(sudo "$VALIDATE_CMD" qemu 2>&1) || true
+    if printf '%s' "$output" | grep -qi 'FAIL'; then
+        print_warning "Validation reported some failures"
+        printf '%s\n' "$output" | grep -i 'fail' | sed 's/^/  /' | head -n 6
+    elif printf '%s' "$output" | grep -qi 'WARN'; then
+        print_info "Validation completed with warnings"
     else
-        print_success "All validation checks passed!"
+        print_success "Validation checks passed"
     fi
 }
 
 setup_tuned() {
-    echo ''
-    setup_tuned=''
-    ask_yes "Configure TuneD for virtualization host?" setup_tuned
-    
-    case "$setup_tuned" in
+    echo ""
+
+    if [ -z "$TUNED_PACKAGE" ]; then
+        if [ "$OS" = "arch" ]; then
+            print_skip "TuneD is not included in the official Arch package set"
+            print_info "Install it separately with an AUR helper if you want host tuning."
+        else
+            print_skip "TuneD profile setup is not defined for this distro profile"
+        fi
+        return
+    fi
+
+    setup_tuned_answer=""
+    ask_yes "Configure TuneD for a virtualization host?" setup_tuned_answer
+    case "$setup_tuned_answer" in
         Y|y) ;;
         *) print_skip "TuneD configuration skipped"; return ;;
     esac
-    
-    if ! command -v tuned-adm >/dev/null 2>&1; then
-        print_skip "TuneD not installed"
+
+    if ! command_exists tuned-adm; then
+        print_skip "tuned-adm is not installed"
         return
     fi
-    
-    print_info "Setting TuneD profile to virtual-host..."
+
+    if [ "$SYSTEMD_AVAILABLE" = "true" ]; then
+        sudo systemctl enable --now tuned.service >/dev/null 2>&1 || true
+    fi
+
     if sudo tuned-adm profile virtual-host >/dev/null 2>&1; then
-        print_success "TuneD configured for optimal VM performance"
-        current_profile=$(tuned-adm active 2>/dev/null | head -n 1)
-        print_info "Current profile: ${current_profile}"
+        print_success "TuneD profile set to virtual-host"
     else
-        print_error "Failed to set TuneD profile"
+        print_warning "Could not apply the virtual-host TuneD profile"
     fi
 }
 
 setup_permissions() {
-    echo ''
-    setup_perms=''
-    ask_yes "Add user to libvirt group?" setup_perms
-    
+    echo ""
+    setup_perms=""
+    ask_yes "Add the current user to the libvirt group?" setup_perms
     case "$setup_perms" in
         Y|y) ;;
         *) print_skip "Permission setup skipped"; return ;;
     esac
-    
-    if groups "$USER" 2>/dev/null | grep -qw libvirt; then
-        print_skip "User already in libvirt group"
-    else
-        print_info "Adding $USER to libvirt group..."
-        sudo usermod -aG libvirt "$USER"
-        need_reboot "User added to libvirt group"
-        print_success "User added to libvirt group"
+
+    if [ -z "$RUN_USER" ] || [ "$RUN_USER" = "root" ]; then
+        print_warning "No non-root user context detected for libvirt group setup"
+        return
     fi
-    
-    print_info "Setting LIBVIRT_DEFAULT_URI..."
+
+    if id -nG "$RUN_USER" 2>/dev/null | tr ' ' '\n' | grep -qx 'libvirt'; then
+        print_skip "$RUN_USER is already in the libvirt group"
+    else
+        print_info "Adding $RUN_USER to the libvirt group..."
+        if sudo usermod -aG libvirt "$RUN_USER" >/dev/null 2>&1; then
+            print_success "$RUN_USER added to libvirt"
+            need_reboot "User group membership was updated"
+        else
+            print_warning "Could not add $RUN_USER to the libvirt group automatically"
+        fi
+    fi
+
     case "$SHELL_EXT" in
         fish)
-            add_to_shell_config "set -gx LIBVIRT_DEFAULT_URI 'qemu:///system'"
+            add_to_shell_config "set -gx LIBVIRT_DEFAULT_URI qemu:///system"
             ;;
         *)
             add_to_shell_config "export LIBVIRT_DEFAULT_URI='qemu:///system'"
             ;;
     esac
-    print_success "LIBVIRT_DEFAULT_URI configured"
-    print_warning "Log out and back in for group changes"
+    print_success "LIBVIRT_DEFAULT_URI was added to ${SHELL_RC}"
 }
 
 setup_acl() {
-    echo ''
-    setup_acl=''
-    ask_yes "Set ACL permissions on VM images directory?" setup_acl
-    
-    case "$setup_acl" in
+    echo ""
+    setup_acl_answer=""
+    ask_yes "Set ACL permissions on /var/lib/libvirt/images?" setup_acl_answer
+    case "$setup_acl_answer" in
         Y|y) ;;
         *) print_skip "ACL setup skipped"; return ;;
     esac
-    
-    if [ ! -d /var/lib/libvirt/images ]; then
-        sudo mkdir -p /var/lib/libvirt/images
+
+    if ! command_exists setfacl; then
+        print_warning "setfacl is not available - skipping ACL configuration"
+        return
     fi
-    
-    print_info "Setting ACL for user $USER..."
+
+    if [ -z "$RUN_USER" ] || [ "$RUN_USER" = "root" ]; then
+        print_warning "ACL setup needs a non-root user context"
+        return
+    fi
+
+    sudo mkdir -p /var/lib/libvirt/images
     sudo setfacl -R -b /var/lib/libvirt/images 2>/dev/null || true
-    sudo setfacl -R -m "u:$USER:rwX" /var/lib/libvirt/images
-    sudo setfacl -m "d:u:$USER:rwx" /var/lib/libvirt/images
-    
-    if touch /var/lib/libvirt/images/.test 2>/dev/null; then
-        rm /var/lib/libvirt/images/.test
-        print_success "ACL permissions configured"
-        print_success "User can write to images directory"
-    else
-        print_error "Failed to set ACL permissions"
-    fi
+    sudo setfacl -R -m "u:${RUN_USER}:rwX" /var/lib/libvirt/images || {
+        print_warning "Could not apply recursive ACLs"
+        return
+    }
+    sudo setfacl -m "d:u:${RUN_USER}:rwx" /var/lib/libvirt/images || true
+    print_success "ACLs configured for $RUN_USER"
 }
 
 setup_network_bridge() {
-    echo ''
-    setup_bridge=''
-    ask_no "Configure network bridge for VMs?" setup_bridge
-    
+    echo ""
+    setup_bridge=""
+    ask_no "Configure a bridged network for VMs?" setup_bridge
     case "$setup_bridge" in
         Y|y) ;;
-        *) print_skip "Network bridge skipped (VMs will use NAT)"; return ;;
+        *) print_skip "Bridge networking skipped"; return ;;
     esac
-    
-    if ! command -v nmcli >/dev/null 2>&1; then
-        print_error "NetworkManager (nmcli) not found"
-        print_info "Network bridge setup requires NetworkManager"
+
+    if ! command_exists nmcli; then
+        print_warning "NetworkManager is not available - skipping bridge setup"
         return
     fi
-    
-    echo ''
-    print_warning "Network bridge requires ethernet (not Wi-Fi)"
-    
-    echo ''
-    print_info "Current interfaces:"
-    ip -brief link show 2>/dev/null | grep -v "lo\|virbr" || true
-    
-    bridge_iface=''
-    printf '  [1mEnter ethernet interface name[0m (e.g., enp0s3): '
+
+    print_warning "Bridge setup can disrupt networking if the wrong interface is selected"
+    print_info "Available interfaces:"
+    ip -brief link show 2>/dev/null | grep -v ' lo\|virbr' || true
+
+    bridge_iface=""
+    printf '  \033[1mEnter ethernet interface name\033[0m: '
     read bridge_iface
-    
-    if [ -z "$bridge_iface" ]; then
-        print_error "No interface specified"
+    if [ -z "$bridge_iface" ] || ! ip link show "$bridge_iface" >/dev/null 2>&1; then
+        print_error "A valid interface name is required"
         return
     fi
-    
-    if ! ip link show "$bridge_iface" >/dev/null 2>&1; then
-        print_error "Interface '$bridge_iface' not found"
-        return
-    fi
-    
-    print_success "Using interface: $bridge_iface"
-    
-    # Check if bridge already exists
-    if nmcli connection show 2>/dev/null | grep -q "^bridge0"; then
-        print_warning "Bridge 'bridge0' already exists"
-        bridge_exists=''
-        ask_no "Recreate bridge0?" bridge_exists
-        case "$bridge_exists" in
-            Y|y)
-                print_info "Deleting existing bridge..."
-                sudo nmcli connection delete bridge0 2>/dev/null || true
-                ;;
-            *)
-                print_skip "Using existing bridge"
-                ;;
-        esac
-    fi
-    
-    if ! nmcli connection show 2>/dev/null | grep -q "^bridge0"; then
-        print_info "Creating bridge 'bridge0'..."
-        if ! sudo nmcli connection add type bridge con-name bridge0 ifname bridge0 2>/dev/null; then
-            print_error "Failed to create bridge"
+
+    if ! nmcli connection show bridge0 >/dev/null 2>&1; then
+        sudo nmcli connection add type bridge con-name bridge0 ifname bridge0 >/dev/null 2>&1 || {
+            print_error "Failed to create bridge0"
             return
-        fi
+        }
     fi
-    
-    # Check if slave connection exists
+
     slave_name="Bridge to $bridge_iface"
-    if ! nmcli connection show 2>/dev/null | grep -q "$slave_name"; then
-        print_info "Adding $bridge_iface to bridge..."
-        if ! sudo nmcli connection add type ethernet slave-type bridge \
-            con-name "$slave_name" \
-            ifname "$bridge_iface" master bridge0 2>/dev/null; then
-            print_warning "Could not add interface to bridge"
-        fi
+    if ! nmcli connection show "$slave_name" >/dev/null 2>&1; then
+        sudo nmcli connection add type ethernet slave-type bridge con-name "$slave_name" ifname "$bridge_iface" master bridge0 >/dev/null 2>&1 || {
+            print_warning "Failed to enslave $bridge_iface to bridge0"
+        }
     fi
-    
-    use_dhcp=''
-    ask_yes "Use DHCP for bridge IP?" use_dhcp
-    
-    case "$use_dhcp" in
-        Y|y)
-            sudo nmcli connection modify bridge0 ipv4.method auto
-            print_info "Bridge will use DHCP"
-            ;;
-        *)
-            bridge_ip=''
-            gateway=''
-            dns=''
-            printf '  [1mIP/CIDR[0m (e.g., 192.168.1.100/24): '
-            read bridge_ip
-            printf '  [1mGateway[0m: '
-            read gateway
-            printf '  [1mDNS servers[0m (comma separated): '
-            read dns
-            
-            if [ -z "$bridge_ip" ] || [ -z "$gateway" ]; then
-                print_error "IP and gateway are required for static configuration"
-                return
-            fi
-            
-            if ! echo "$bridge_ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$'; then
-                print_warning "IP format may be invalid (expected: 192.168.1.100/24)"
-            fi
-            
-            sudo nmcli connection modify bridge0 ipv4.addresses "$bridge_ip"
-            sudo nmcli connection modify bridge0 ipv4.gateway "$gateway"
-            [ -n "$dns" ] && sudo nmcli connection modify bridge0 ipv4.dns "$dns"
-            sudo nmcli connection modify bridge0 ipv4.method manual
-            print_info "Bridge configured with static IP: $bridge_ip"
-            ;;
-    esac
-    
-    print_info "Bringing up bridge..."
-    sudo nmcli connection up bridge0 2>/dev/null || true
-    sudo nmcli connection modify bridge0 connection.autoconnect-slaves 1
-    
-    print_info "Creating libvirt network..."
-    cat <<'EOF' | sudo tee /tmp/nwbridge.xml > /dev/null
-<network>
-  <name>nwbridge</name>
-  <forward mode='bridge'/>
-  <bridge name='bridge0'/>
-</network>
-EOF
-    sudo virsh net-define /tmp/nwbridge.xml 2>/dev/null || true
-    sudo virsh net-start nwbridge 2>/dev/null || true
-    sudo virsh net-autostart nwbridge 2>/dev/null || true
-    rm -f /tmp/nwbridge.xml
-    
-    need_reboot "Network bridge configured"
-    print_success "Network bridge configured!"
-    print_info "VMs can now use 'nwbridge' network"
+
+    sudo nmcli connection modify bridge0 ipv4.method auto >/dev/null 2>&1 || true
+    sudo nmcli connection up bridge0 >/dev/null 2>&1 || true
+    need_reboot "Bridge networking was configured"
+    print_success "Bridge networking configured"
 }
 
 setup_default_network() {
-    echo ''
-    print_info "Starting and enabling default libvirt network..."
-    sudo virsh net-start default 2>/dev/null || true
-    sudo virsh net-autostart default 2>/dev/null || true
-    print_success "Default network configured"
+    echo ""
+    if ! command_exists virsh; then
+        print_skip "virsh is not installed - skipping default network setup"
+        return
+    fi
+
+    sudo virsh net-start default >/dev/null 2>&1 || true
+    sudo virsh net-autostart default >/dev/null 2>&1 || true
+    print_success "Default libvirt NAT network is ready"
 }
 
 setup_iptables_backend() {
-    echo ''
-    
-    # Check if iptables is installed
-    iptables_installed=false
-    if command -v iptables >/dev/null 2>&1; then
-        iptables_installed=true
+    echo ""
+
+    if command_exists iptables; then
+        print_skip "iptables backend tools are already available"
+        return
     fi
-    
-    # Check if nftables is installed (conflicts with iptables backend)
-    nftables_installed=false
-    if command -v nft >/dev/null 2>&1; then
-        nftables_installed=true
+
+    if ! command_exists nft; then
+        print_skip "Neither nftables nor iptables was detected - skipping backend tuning"
+        return
     fi
-    
-    # Check if network.conf already exists
-    network_conf="/etc/libvirt/network.conf"
-    
-    if [ "$nftables_installed" = "true" ] && [ "$iptables_installed" = "false" ]; then
-        print_info "nftables detected, configuring libvirt to use iptables backend..."
+
+    print_info "nftables detected without iptables compatibility tools"
+    print_info "Installing ${IPTABLES_PACKAGE} so libvirt networking works more reliably..."
+
+    TO_INSTALL="$IPTABLES_PACKAGE"
+    if run_package_install; then
         sudo mkdir -p /etc/libvirt
-        
-        if [ -f "$network_conf" ]; then
-            # File exists - check if firewall_backend line is present
-            if grep -q "^firewall_backend" "$network_conf" 2>/dev/null; then
-                # Replace existing firewall_backend line
-                sudo sed -i 's/^firewall_backend.*/firewall_backend = "iptables"/' "$network_conf"
-                print_success "Updated firewall_backend in $network_conf"
+        if [ -f /etc/libvirt/network.conf ]; then
+            if grep -q '^firewall_backend' /etc/libvirt/network.conf 2>/dev/null; then
+                sudo sed -i 's/^firewall_backend.*/firewall_backend = "iptables"/' /etc/libvirt/network.conf
             else
-                # Append the line
-                echo 'firewall_backend = "iptables"' | sudo tee -a "$network_conf" > /dev/null
-                print_success "Added firewall_backend to $network_conf"
+                printf '%s\n' 'firewall_backend = "iptables"' | sudo tee -a /etc/libvirt/network.conf >/dev/null
             fi
         else
-            # File doesn't exist - create it
-            sudo tee "$network_conf" > /dev/null << 'EOF'
-firewall_backend = "iptables"
-EOF
-            print_success "Created $network_conf"
+            printf '%s\n' 'firewall_backend = "iptables"' | sudo tee /etc/libvirt/network.conf >/dev/null
         fi
-        need_reboot "Libvirt network backend configured"
-    elif [ "$iptables_installed" = "true" ]; then
-        print_skip "iptables already available"
+        need_reboot "Libvirt firewall backend was updated"
+        print_success "Libvirt firewall backend configured"
     else
-        print_warning "Neither iptables nor nftables detected"
-        print_info "Installing iptables..."
-        case "$OS" in
-            arch)
-                sudo pacman -S --noconfirm iptables
-                ;;
-            debian|ubuntu)
-                sudo apt update -qq
-                sudo apt install -y iptables
-                ;;
-            fedora|rhel)
-                sudo dnf install -y iptables
-                ;;
-        esac
-        need_reboot "iptables installed"
-        
-        sudo mkdir -p /etc/libvirt
-        
-        if [ -f "$network_conf" ]; then
-            if grep -q "^firewall_backend" "$network_conf" 2>/dev/null; then
-                sudo sed -i 's/^firewall_backend.*/firewall_backend = "iptables"/' "$network_conf"
-                print_success "Updated firewall_backend in $network_conf"
-            else
-                echo 'firewall_backend = "iptables"' | sudo tee -a "$network_conf" > /dev/null
-                print_success "Added firewall_backend to $network_conf"
-            fi
-        else
-            sudo tee "$network_conf" > /dev/null << 'EOF'
-firewall_backend = "iptables"
-EOF
-            print_success "Created $network_conf"
-        fi
-        need_reboot "Libvirt network backend configured"
+        print_warning "Could not install ${IPTABLES_PACKAGE}"
     fi
 }
 
 setup_virtio_windows() {
-    echo ''
-    win_guests=''
-    ask_no "Will you install Windows VMs?" win_guests
-    
+    echo ""
+    win_guests=""
+    ask_no "Do you want VirtIO drivers for Windows guests?" win_guests
     case "$win_guests" in
         Y|y) ;;
-        *) print_skip "VirtIO drivers setup skipped"; return ;;
+        *) print_skip "VirtIO ISO download skipped"; return ;;
     esac
-    
-    print_info "Downloading VirtIO drivers..."
-    
-    # Download stable version from the stable-virtio directory
+
     virtio_url="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
     virtio_dir="/var/lib/libvirt/images/virtio-win"
     sudo mkdir -p "$virtio_dir"
-    
-    download_failed=false
-    if command -v wget >/dev/null 2>&1; then
-        print_info "Downloading with wget (this may take a while)..."
-        if ! sudo wget --timeout=120 --progress=bar:force:noscroll "$virtio_url" -O "$virtio_dir/virtio-win.iso"; then
-            download_failed=true
-        fi
-    elif command -v curl >/dev/null 2>&1; then
-        print_info "Downloading with curl (this may take a while)..."
-        if ! sudo curl --max-time 120 -# -L "$virtio_url" -o "$virtio_dir/virtio-win.iso"; then
-            download_failed=true
-        fi
+
+    if command_exists wget; then
+        sudo wget --timeout=120 --progress=bar:force:noscroll "$virtio_url" -O "$virtio_dir/virtio-win.iso" || {
+            print_warning "wget download failed"
+            return
+        }
+    elif command_exists curl; then
+        sudo curl --max-time 120 -# -L "$virtio_url" -o "$virtio_dir/virtio-win.iso" || {
+            print_warning "curl download failed"
+            return
+        }
     else
-        print_error "Neither wget nor curl available"
-        print_info "Download manually from: $virtio_url"
+        print_warning "Neither wget nor curl is available"
         return
     fi
-    
-    if [ "$download_failed" = "true" ]; then
-        print_error "Failed to download VirtIO drivers (network error)"
-        print_info "Download manually from: $virtio_url"
-        return
-    fi
-    
-    if [ -f "$virtio_dir/virtio-win.iso" ] && [ -s "$virtio_dir/virtio-win.iso" ]; then
-        size=$(du -h "$virtio_dir/virtio-win.iso" | cut -f1)
-        print_success "VirtIO drivers downloaded ($size)"
-        print_info "Location: $virtio_dir/virtio-win.iso"
-        print_info "Attach as CD-ROM when installing Windows"
+
+    if [ -s "$virtio_dir/virtio-win.iso" ]; then
+        print_success "VirtIO drivers downloaded to $virtio_dir/virtio-win.iso"
     else
-        print_error "Downloaded file is empty or invalid"
-        print_info "Download manually from: $virtio_url"
-        rm -f "$virtio_dir/virtio-win.iso"
+        print_warning "VirtIO download did not produce a valid ISO"
     fi
 }
 
 show_iommu_guide() {
-    echo ''
+    echo ""
     print_step 10 10 "IOMMU Configuration (Optional)"
-    echo ''
-    
+    echo ""
+
     if [ "$IOMMU_ENABLED" = "true" ]; then
-        print_success "IOMMU is already enabled!"
+        print_success "IOMMU is already enabled"
         return
     fi
-    
-    print_warning "IOMMU is not enabled"
-    print_info "Required for GPU passthrough and PCIe devices"
-    echo ''
-    
-    show_guide=''
-    ask_no "Show IOMMU setup instructions?" show_guide
-    
+
+    show_guide=""
+    ask_no "Show IOMMU bootloader instructions?" show_guide
     case "$show_guide" in
-        Y|y)
-            echo ''
-            print_info "Edit /etc/default/grub:"
-            case "$CPU_VENDOR" in
-                GenuineIntel) printf '[2m  GRUB_CMDLINE_LINUX="... intel_iommu=on iommu=pt"[0m\n' ;;
-                *) printf '[2m  GRUB_CMDLINE_LINUX="... iommu=pt"[0m\n' ;;
-            esac
-            echo ''
-            print_info "Update GRUB:"
-            case "$OS" in
-                arch) printf '[2m  sudo grub-mkconfig -o /boot/grub/grub.cfg[0m\n' ;;
-                debian|ubuntu) printf '[2m  sudo update-grub[0m\n' ;;
-                fedora|rhel)
-                    # Try new command first, fallback to old
-                    if command -v grub2-mkconfig >/dev/null 2>&1; then
-                        printf '[2m  sudo grub2-mkconfig -o /boot/grub2/grub.cfg[0m\n'
-                    else
-                        printf '[2m  sudo grub2-mkconfig -o /boot/efi/EFI/fedora/grub.cfg[0m\n'
-                    fi
-                    ;;
-            esac
-            echo ''
-            print_info "Reboot and verify: dmesg | grep -i DMAR"
+        Y|y) ;;
+        *) return ;;
+    esac
+
+    print_info "Add the appropriate kernel flags to your bootloader:"
+    case "$CPU_VENDOR" in
+        *Intel*|*GenuineIntel*)
+            printf '\033[2m  intel_iommu=on iommu=pt\033[0m\n'
+            ;;
+        *)
+            printf '\033[2m  amd_iommu=on iommu=pt\033[0m\n'
             ;;
     esac
+
+    print_info "Then regenerate your bootloader config and reboot."
 }
 
 show_reboot_prompt() {
-    if [ "$SKIP_REBOOT" = "true" ]; then
-        print_info "Reboot check skipped (--skip-reboot)"
+    [ "$SKIP_REBOOT" = "true" ] && {
+        print_info "Reboot prompt skipped (--skip-reboot)"
         return
-    fi
-    
-    printf '\033[1;33m'
-    printf '%s\n' '  ┌─ Reboot Recommended ─────────────────────────────────────────┐'
-    printf '%s\n' '  │'
-    
-    # Parse REBOOT_REASONS (format: "reason|reason|reason")
-    # Use a temp file to avoid subshell issues
+    }
+
+    printf '\033[1;33m%s\033[0m\n' '  Reboot recommended for full libvirt readiness.'
     if [ -n "$REBOOT_REASONS" ]; then
-        echo "$REBOOT_REASONS" | tr '|' '\n' > /tmp/reboot_reasons_$$.txt
-        while IFS= read -r reason; do
-            [ -n "$reason" ] && printf '\033[1;33m  │  • %s\033[0m\n' "$reason"
-        done < /tmp/reboot_reasons_$$.txt
-        rm -f /tmp/reboot_reasons_$$.txt
+        echo "$REBOOT_REASONS" | tr '|' '\n' | while IFS= read -r reason; do
+            [ -n "$reason" ] && printf '\033[1;33m  • %s\033[0m\n' "$reason"
+        done
     fi
-    
-    printf '%s\n' '  │'
-    printf '\033[1;33m  │  \033[2mReboot ensures all services start correctly\033[0m'
-    printf '%s\n' '  │'
-    printf '%s\n' '  └──────────────────────────────────────────────────────────────┘'
-    printf '\033[0m'
-    echo ''
-    
-    reboot_now=''
+
+    reboot_now=""
     ask_no "Reboot now?" reboot_now
-    
     case "$reboot_now" in
         Y|y)
-            echo ''
             print_info "Rebooting now..."
             sudo reboot
             ;;
         *)
-            echo ''
-            print_warning "Remember to reboot later for full functionality!"
+            print_warning "Please reboot later before relying on the new VM setup"
             ;;
     esac
 }
 
 show_next_steps() {
-    echo ''
+    echo ""
     printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-    printf '\033[0;32m\033[1m  Installation Complete!\033[0m\n'
+    printf '\033[0;32m\033[1m  Setup Complete\033[0m\n'
     printf '\033[0;36m%s\033[0m\n' '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-    echo ''
-    
-    if [ "$REBOOT_NEEDED" != "true" ]; then
-        printf '\033[0;32m\033[1m  Everything is configured and ready!\033[0m\n'
-        echo ''
-    fi
-    
+    echo ""
     printf '\033[1m  Quick Start:\033[0m\n'
-    printf '\033[2m  1. virt-manager\033[0m        - Launch VM Manager\n'
-    printf '\033[2m  2. virsh net-list\033[0m       - View networks\n'
-    printf '\033[2m  3. virt-host-validate\033[0m   - Verify setup\n'
-    echo ''
-    
+    printf '\033[2m  1. virt-manager\033[0m        - Open the graphical VM manager\n'
+    printf '\033[2m  2. virsh net-list\033[0m       - Inspect libvirt networks\n'
+    printf '\033[2m  3. virt-host-validate\033[0m   - Run validation again\n'
+    echo ""
+
     if [ "$REBOOT_NEEDED" = "true" ]; then
         show_reboot_prompt
+    else
+        print_success "No reboot is currently required"
     fi
-    
-    echo ''
-    printf '\033[2m  Documentation: https://sysguides.com/install-kvm-on-linux\033[0m\n'
-    printf '\033[2m  Author: Mistan Khomdram | https://github.com/MistanKh\033[0m\n'
-    printf '\033[2m  Created with: https://opencode.ai\033[0m\n'
-    echo ''
 }
 
 show_help() {
-    echo "QEMU/KVM Setup Script - Automated installation"
-    echo ''
-    echo "Usage:"
-    echo "  $0 [OPTIONS]"
-    echo ''
-    echo "Options:"
-    echo '  --reinstall       Force reinstall packages even if installed'
-    echo '  --skip-reboot    Skip reboot prompt and checks'
-    echo '  --help           Show this help message'
-    echo '  --version        Show version info'
-    echo ''
-    echo "Examples:"
-    echo "  $0                  # Run interactive setup"
-    echo "  $0 --reinstall       # Force reinstall packages"
-    echo "  $0 --skip-reboot     # Skip reboot prompt"
-    echo ''
+    cat <<'EOF'
+KVM / QEMU Setup Script
+
+Usage:
+  ./install-kvm.sh [OPTIONS]
+
+Options:
+  --reinstall      Force reinstall where the package manager supports it
+  --skip-reboot    Skip the reboot prompt
+  --help, -h       Show this help
+  --version, -v    Show version information
+EOF
 }
 
 show_version() {
-    echo "QEMU/KVM Setup Script v1.0.0"
-    echo "Based on: https://sysguides.com/install-kvm-on-linux"
-}
-
-show_version() {
-    echo "KVM Setup Script v1.0.0"
-    echo "Based on: https://sysguides.com/install-kvm-on-linux"
+    echo "KVM Setup Script v2.0.0"
+    echo "Cross-distro interactive host setup"
 }
 
 parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
-            --reinstall) FORCE_REINSTALL=true; shift ;;
-            --skip-reboot) SKIP_REBOOT=true; shift ;;
+            --reinstall) FORCE_REINSTALL=true ;;
+            --skip-reboot) SKIP_REBOOT=true ;;
             --help|-h) show_help; exit 0 ;;
             --version|-v) show_version; exit 0 ;;
             *)
-                echo -e "[0;31mUnknown option: $1[0m"
+                print_error "Unknown option: $1"
                 show_help
                 exit 1
                 ;;
         esac
+        shift
     done
 }
 
 check_sudo() {
-    if ! command -v sudo >/dev/null 2>&1; then
-        if [ "$(id -u)" -ne 0 ]; then
-            printf '\033[0;31m  ✗\033[0m sudo not found and not running as root\n'
-            printf '\033[0;34m  ℹ\033[0m This script requires sudo for package installation\n'
-            exit 1
-        fi
+    if [ "$(id -u)" -eq 0 ]; then
+        print_warning "Running as root - user group changes may be less useful"
+        return
+    fi
+
+    if ! command_exists sudo; then
+        print_error "sudo is required when not running as root"
+        exit 1
+    fi
+
+    print_info "Verifying sudo access..."
+    if sudo -v 2>/dev/null; then
+        print_success "sudo access verified"
     else
-        # Try to cache sudo credentials, but don't fail if it doesn't work
-        # Some systems (like Fedora) may have stricter sudo configuration
-        printf '\033[0;34m  ℹ\033[0m Verifying sudo access...\n'
-        if sudo -v 2>/dev/null; then
-            printf '\033[0;32m  ✓\033[0m sudo access verified\n'
-        else
-            printf '\033[0;33m  ⚠\033[0m sudo cache failed - will prompt for password when needed\n'
-        fi
+        print_warning "sudo credential caching failed - you may be prompted later"
     fi
 }
 
 cleanup() {
-    echo ''
-    echo ''
-    printf '\033[0;33m  ⚠\033[0m Script interrupted by user\n'
-    printf '\033[0;34m  ℹ\033[0m Partial changes may have been made\n'
+    echo ""
+    print_warning "Script interrupted by user"
+    print_info "Some partial changes may already have been applied"
     exit 130
 }
 
@@ -1209,19 +1035,9 @@ trap cleanup INT
 
 main() {
     parse_args "$@"
-    
     init_shell
     check_sudo
-    
-    if [ "$(id -u)" -eq 0 ]; then
-        echo ''
-        print_warning "Running as root - group changes won't take effect for root"
-        print_info "Run as normal user with sudo for proper configuration"
-        echo ''
-    fi
-    
     print_banner
-    
     detect_os
     detect_shell
     check_architecture

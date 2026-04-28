@@ -50,7 +50,7 @@ class KvmSetupApp(App[None]):
         width: 1fr;
     }
     #host-summary {
-        height: 12;
+        height: 13;
         border: round #14b8a6;
         background: #07121d;
         padding: 1 2;
@@ -143,18 +143,23 @@ class KvmSetupApp(App[None]):
         notes = "\n".join(f"• {note}" for note in snapshot.notes) or "• No warnings detected."
         virtualization = snapshot.virtualization or "Unknown"
         status = "Ready" if snapshot.platform == "linux" and snapshot.package_manager else "Needs review"
+        family = snapshot.distro_family or "unmapped"
         summary = (
             f"[b]{snapshot.distro_name}[/b]  [#38bdf8]{status}[/#38bdf8]\n"
             f"Arch: [#f59e0b]{snapshot.architecture}[/#f59e0b]   "
             f"Pkg: [#22c55e]{snapshot.package_manager or 'unavailable'}[/#22c55e]   "
-            f"Shell: [#c084fc]{snapshot.shell_name}[/#c084fc]\n"
+            f"Family: [#f97316]{family}[/#f97316]\n"
+            f"Shell: [#c084fc]{snapshot.shell_name}[/#c084fc]   "
+            f"User: [#93c5fd]{snapshot.run_user or 'unknown'}[/#93c5fd]\n"
             f"CPU Vendor: {snapshot.cpu_vendor or 'Unknown'}\n"
             f"Virtualization: {virtualization}\n"
-            f"KVM Module: {'loaded' if snapshot.kvm_loaded else 'not loaded'}   "
+            f"KVM Support: {'available' if snapshot.kvm_supported else 'missing'}   "
+            f"KVM Loaded: {'yes' if snapshot.kvm_loaded else 'no'}\n"
             f"IOMMU: {'enabled' if snapshot.iommu_enabled else 'disabled'}   "
             f"virt-manager: {'installed' if snapshot.virt_manager_installed else 'missing'}\n"
             f"systemd: {'active' if snapshot.systemd_available else 'inactive'}   "
-            f"WSL: {'yes' if snapshot.running_in_wsl else 'no'}\n"
+            f"WSL: {'yes' if snapshot.running_in_wsl else 'no'}   "
+            f"Container: {'yes' if snapshot.running_in_container else 'no'}\n"
             f"[b]Notes[/b]\n{notes}"
         )
         self.query_one("#host-summary", Static).update(summary)

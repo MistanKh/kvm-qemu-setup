@@ -61,6 +61,40 @@ def _detect_package_manager() -> str | None:
     return None
 
 
+def _normalize_family(distro_id: str, distro_like: tuple[str, ...], package_manager: str | None) -> str | None:
+    candidates = [distro_id, *distro_like]
+    for candidate in candidates:
+        lowered = candidate.lower()
+        if lowered in {"arch", "archlinux"}:
+            return "arch"
+        if lowered in {"ubuntu"}:
+            return "ubuntu"
+        if lowered in {"debian", "linuxmint", "pop", "elementary", "zorin", "kali", "neon"}:
+            return "debian"
+        if lowered in {"fedora"}:
+            return "fedora"
+        if lowered in {"rhel", "centos", "rocky", "almalinux", "alma", "ol", "oracle"}:
+            return "rhel"
+        if lowered.startswith("opensuse") or lowered in {"suse", "sled", "sles"}:
+            return "suse"
+        if lowered in {"alpine"}:
+            return "alpine"
+
+    if package_manager == "pacman":
+        return "arch"
+    if package_manager == "apt":
+        return "debian"
+    if package_manager == "dnf":
+        return "fedora"
+    if package_manager == "yum":
+        return "rhel"
+    if package_manager == "zypper":
+        return "suse"
+    if package_manager == "apk":
+        return "alpine"
+    return None
+
+
 def _detect_virtualization() -> tuple[str | None, str | None]:
     lscpu_output = _run_capture("lscpu")
     cpu_vendor = None
@@ -125,6 +159,24 @@ def _systemd_available() -> bool:
     return _command_exists("systemctl") and Path("/run/systemd/system").exists()
 
 
+def _running_in_container() -> bool:
+    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
+        return True
+    if _command_exists("systemd-detect-virt"):
+        completed = subprocess.run(
+            ["systemd-detect-virt", "-q", "-c"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return completed.returncode == 0
+    return False
+
+
+def _detect_run_user() -> str | None:
+    return os.environ.get("SUDO_USER") or os.environ.get("USER") or os.environ.get("LOGNAME")
+
+
 def discover_host() -> HostSnapshot:
     system_name = platform.system().lower()
     notes: list[str] = []
@@ -134,6 +186,7 @@ def discover_host() -> HostSnapshot:
         return HostSnapshot(
             platform=system_name,
             distro_id=system_name,
+            distro_family=None,
             distro_name=platform.platform(),
             distro_like=(),
             package_manager=None,
@@ -150,6 +203,11 @@ def discover_host() -> HostSnapshot:
             sudo_available=_command_exists("sudo"),
             systemd_available=False,
             running_in_wsl=False,
+            running_in_container=False,
+            run_user=_detect_run_user(),
+            acl_available=False,
+            iptables_available=False,
+            nft_available=False,
             notes=notes,
         )
 
@@ -160,11 +218,16 @@ def discover_host() -> HostSnapshot:
     shell_name, shell_rc = _detect_shell()
     cpu_vendor, virtualization = _detect_virtualization()
     package_manager = _detect_package_manager()
+    distro_family = _normalize_family(distro_id, distro_like, package_manager)
 
     kvm_supported = _module_available("kvm")
     kvm_loaded = _module_loaded("kvm") or _module_loaded("kvm_intel") or _module_loaded("kvm_amd")
     running_in_wsl = _running_in_wsl()
     systemd_available = _systemd_available()
+    running_in_container = False if running_in_wsl else _running_in_container()
+    acl_available = _command_exists("setfacl")
+    iptables_available = _command_exists("iptables")
+    nft_available = _command_exists("nft")
 
     if not package_manager:
         notes.append("No supported package manager detected yet. Audit still works, install plan may be limited.")
@@ -172,12 +235,17 @@ def discover_host() -> HostSnapshot:
         notes.append("Virtualization support could not be confirmed automatically.")
     if running_in_wsl:
         notes.append("WSL is great for UI and planning tests, but it is usually not a real KVM host target.")
+    if running_in_container:
+        notes.append("Container environment detected, so host virtualization support may be incomplete.")
     if not systemd_available:
         notes.append("systemd is not active, so service enable/start steps may need manual handling.")
+    if not distro_family:
+        notes.append("The distro family could not be normalized, so package planning may be incomplete.")
 
     return HostSnapshot(
         platform=system_name,
         distro_id=distro_id,
+        distro_family=distro_family,
         distro_name=distro_name,
         distro_like=distro_like,
         package_manager=package_manager,
@@ -194,5 +262,10 @@ def discover_host() -> HostSnapshot:
         sudo_available=_command_exists("sudo"),
         systemd_available=systemd_available,
         running_in_wsl=running_in_wsl,
+        running_in_container=running_in_container,
+        run_user=_detect_run_user(),
+        acl_available=acl_available,
+        iptables_available=iptables_available,
+        nft_available=nft_available,
         notes=notes,
     )

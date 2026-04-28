@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 class HostSnapshot:
     platform: str
     distro_id: str
+    distro_family: str | None
     distro_name: str
     distro_like: tuple[str, ...]
     package_manager: str | None
@@ -23,6 +24,11 @@ class HostSnapshot:
     sudo_available: bool
     systemd_available: bool
     running_in_wsl: bool
+    running_in_container: bool
+    run_user: str | None
+    acl_available: bool
+    iptables_available: bool
+    nft_available: bool
     notes: list[str] = field(default_factory=list)
 
 
@@ -30,10 +36,11 @@ class HostSnapshot:
 class DistroProfile:
     family: str
     package_manager: str | None
-    install_command: list[str]
     packages: list[str]
     libvirt_units: list[str]
+    update_command: list[str] = field(default_factory=list)
     tuned_package: str | None = None
+    iptables_package: str = "iptables"
     validate_command: list[str] = field(default_factory=lambda: ["virt-host-validate"])
 
 

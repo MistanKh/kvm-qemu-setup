@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import getpass
-
 from kvm_setup_tui.models import DistroProfile, HostSnapshot, PlanStep, SetupOptions
 
 
@@ -9,7 +7,6 @@ PROFILES: dict[str, DistroProfile] = {
     "arch": DistroProfile(
         family="arch",
         package_manager="pacman",
-        install_command=["sudo", "pacman", "-S", "--needed", "--noconfirm"],
         packages=[
             "qemu-full",
             "libvirt",
@@ -18,16 +15,19 @@ PROFILES: dict[str, DistroProfile] = {
             "virt-viewer",
             "edk2-ovmf",
             "swtpm",
-            "qemu-img",
             "guestfs-tools",
             "libosinfo",
+            "dnsmasq",
+            "iptables-nft",
         ],
         libvirt_units=["libvirtd.service"],
+        tuned_package="tuned",
+        iptables_package="iptables-nft",
     ),
     "debian": DistroProfile(
         family="debian",
         package_manager="apt",
-        install_command=["sudo", "apt", "install", "-y"],
+        update_command=["sudo", "apt-get", "update"],
         packages=[
             "qemu-system-x86",
             "libvirt-daemon-system",
@@ -38,8 +38,8 @@ PROFILES: dict[str, DistroProfile] = {
             "swtpm",
             "qemu-utils",
             "guestfs-tools",
-            "tuned",
-            "libosinfo-bin",
+            "dnsmasq-base",
+            "iptables",
         ],
         libvirt_units=["libvirtd.service"],
         tuned_package="tuned",
@@ -47,7 +47,7 @@ PROFILES: dict[str, DistroProfile] = {
     "ubuntu": DistroProfile(
         family="ubuntu",
         package_manager="apt",
-        install_command=["sudo", "apt", "install", "-y"],
+        update_command=["sudo", "apt-get", "update"],
         packages=[
             "qemu-system-x86",
             "libvirt-daemon-system",
@@ -58,8 +58,8 @@ PROFILES: dict[str, DistroProfile] = {
             "swtpm",
             "qemu-utils",
             "guestfs-tools",
-            "tuned",
-            "libosinfo-bin",
+            "dnsmasq-base",
+            "iptables",
         ],
         libvirt_units=["libvirtd.service"],
         tuned_package="tuned",
@@ -67,7 +67,6 @@ PROFILES: dict[str, DistroProfile] = {
     "fedora": DistroProfile(
         family="fedora",
         package_manager="dnf",
-        install_command=["sudo", "dnf", "install", "-y"],
         packages=[
             "qemu-kvm",
             "libvirt",
@@ -76,10 +75,9 @@ PROFILES: dict[str, DistroProfile] = {
             "virt-viewer",
             "edk2-ovmf",
             "swtpm",
-            "qemu-img",
             "guestfs-tools",
-            "tuned",
-            "libosinfo",
+            "dnsmasq",
+            "iptables",
         ],
         libvirt_units=["libvirtd.service"],
         tuned_package="tuned",
@@ -87,7 +85,6 @@ PROFILES: dict[str, DistroProfile] = {
     "rhel": DistroProfile(
         family="rhel",
         package_manager="dnf",
-        install_command=["sudo", "dnf", "install", "-y"],
         packages=[
             "qemu-kvm",
             "libvirt",
@@ -96,10 +93,9 @@ PROFILES: dict[str, DistroProfile] = {
             "virt-viewer",
             "edk2-ovmf",
             "swtpm",
-            "qemu-img",
             "guestfs-tools",
-            "tuned",
-            "libosinfo",
+            "dnsmasq",
+            "iptables",
         ],
         libvirt_units=["libvirtd.service"],
         tuned_package="tuned",
@@ -107,7 +103,7 @@ PROFILES: dict[str, DistroProfile] = {
     "suse": DistroProfile(
         family="suse",
         package_manager="zypper",
-        install_command=["sudo", "zypper", "--non-interactive", "install"],
+        update_command=["sudo", "zypper", "--non-interactive", "refresh"],
         packages=[
             "qemu-kvm",
             "libvirt",
@@ -116,20 +112,23 @@ PROFILES: dict[str, DistroProfile] = {
             "virt-viewer",
             "qemu-tools",
             "swtpm",
-            "patterns-server-kvm_server",
+            "libosinfo",
+            "dnsmasq",
+            "iptables",
         ],
         libvirt_units=["libvirtd.service"],
     ),
     "alpine": DistroProfile(
         family="alpine",
         package_manager="apk",
-        install_command=["sudo", "apk", "add"],
+        update_command=["sudo", "apk", "update"],
         packages=[
             "qemu-system-x86_64",
             "libvirt",
             "virt-install",
-            "virt-manager",
             "qemu-img",
+            "dnsmasq",
+            "iptables",
         ],
         libvirt_units=["libvirtd"],
     ),
@@ -137,6 +136,8 @@ PROFILES: dict[str, DistroProfile] = {
 
 
 def _profile_key(snapshot: HostSnapshot) -> str | None:
+    if snapshot.distro_family:
+        return snapshot.distro_family
     candidates = [snapshot.distro_id, *snapshot.distro_like]
     for candidate in candidates:
         lowered = candidate.lower()
@@ -189,11 +190,13 @@ def _install_command(profile: DistroProfile, reinstall: bool) -> list[str]:
             return ["sudo", "pacman", "-S", "--noconfirm"]
         return ["sudo", "pacman", "-S", "--needed", "--noconfirm"]
     if pm == "apt":
-        command = ["sudo", "apt", "install", "-y"]
+        command = ["sudo", "apt-get", "install", "-y"]
         if reinstall:
             command.append("--reinstall")
         return command
-    if pm in {"dnf", "yum"}:
+    if pm == "dnf":
+        return ["sudo", "dnf", "reinstall" if reinstall else "install", "-y"]
+    if pm == "yum":
         return ["sudo", pm, "reinstall" if reinstall else "install", "-y"]
     if pm == "zypper":
         command = ["sudo", "zypper", "--non-interactive", "install"]
@@ -202,7 +205,43 @@ def _install_command(profile: DistroProfile, reinstall: bool) -> list[str]:
         return command
     if pm == "apk":
         return ["sudo", "apk", "add"]
-    return profile.install_command
+    return ["sudo"]
+
+
+def _resolved_package_manager(snapshot: HostSnapshot, profile: DistroProfile) -> str | None:
+    return snapshot.package_manager or profile.package_manager
+
+
+def _effective_profile(snapshot: HostSnapshot, profile: DistroProfile) -> DistroProfile:
+    return DistroProfile(
+        family=profile.family,
+        package_manager=_resolved_package_manager(snapshot, profile),
+        packages=profile.packages,
+        libvirt_units=profile.libvirt_units,
+        update_command=profile.update_command,
+        tuned_package=profile.tuned_package,
+        iptables_package=profile.iptables_package,
+        validate_command=profile.validate_command,
+    )
+
+
+def _update_commands(snapshot: HostSnapshot, profile: DistroProfile) -> list[list[str]]:
+    pm = _resolved_package_manager(snapshot, profile)
+    if pm == "apt":
+        return [["sudo", "apt-get", "update"]]
+    if pm == "yum":
+        return [["sudo", "yum", "makecache"]]
+    if pm == "zypper":
+        return [["sudo", "zypper", "--non-interactive", "refresh"]]
+    if pm == "apk":
+        return [["sudo", "apk", "update"]]
+    return []
+
+
+def _user_for_group_changes(snapshot: HostSnapshot) -> str | None:
+    if not snapshot.run_user or snapshot.run_user == "root":
+        return None
+    return snapshot.run_user
 
 
 def build_plan(snapshot: HostSnapshot, options: SetupOptions) -> list[PlanStep]:
@@ -234,6 +273,21 @@ def build_plan(snapshot: HostSnapshot, options: SetupOptions) -> list[PlanStep]:
         )
         return plan
 
+    if snapshot.running_in_container:
+        plan.append(
+            PlanStep(
+                key="container-warning",
+                title="Container environment warning",
+                summary="Containerized Linux environments usually cannot act as full KVM hosts.",
+                details=[
+                    "Use this environment for inspection and planning only.",
+                    "Run actual KVM host setup on a native Linux system.",
+                ],
+                selected=False,
+            )
+        )
+        return plan
+
     if not profile:
         plan.append(
             PlanStep(
@@ -246,16 +300,16 @@ def build_plan(snapshot: HostSnapshot, options: SetupOptions) -> list[PlanStep]:
         )
         return plan
 
+    effective_profile = _effective_profile(snapshot, profile)
     install_commands: list[list[str]] = []
-    if profile.package_manager == "apt":
-        install_commands.append(["sudo", "apt", "update"])
-    install_commands.append([*_install_command(profile, options.reinstall), *profile.packages])
+    install_commands.extend(_update_commands(snapshot, effective_profile))
+    install_commands.append([*_install_command(effective_profile, options.reinstall), *effective_profile.packages])
 
     plan.append(
         PlanStep(
             key="packages",
             title="Install virtualization stack",
-            summary=f"Install QEMU, libvirt, virt-manager, firmware, and guest tools for {profile.family}.",
+            summary=f"Install QEMU, libvirt, guest tools, networking helpers, and firmware for {profile.family}.",
             commands=install_commands,
         )
     )
@@ -299,18 +353,62 @@ def build_plan(snapshot: HostSnapshot, options: SetupOptions) -> list[PlanStep]:
         )
 
     if options.configure_libvirt_group:
-        username = getpass.getuser()
+        username = _user_for_group_changes(snapshot)
+        if username:
+            plan.append(
+                PlanStep(
+                    key="permissions",
+                    title="User access",
+                    summary="Add the active user to the libvirt group and set the default URI.",
+                    commands=[
+                        ["sudo", "usermod", "-aG", "libvirt", username],
+                        ["sh", "-lc", _format_shell_export(snapshot)],
+                    ],
+                    requires_confirmation=True,
+                    details=["A logout/login or reboot is usually needed after group changes."],
+                )
+            )
+        else:
+            plan.append(
+                PlanStep(
+                    key="permissions-manual",
+                    title="User access review",
+                    summary="No non-root user context was detected for libvirt group setup.",
+                    details=[
+                        "Run the group setup later from a normal user session.",
+                        "You can still set LIBVIRT_DEFAULT_URI manually in your shell config.",
+                    ],
+                    selected=False,
+                )
+            )
+
+    acl_username = _user_for_group_changes(snapshot)
+    if snapshot.acl_available and acl_username:
         plan.append(
             PlanStep(
-                key="permissions",
-                title="User access",
-                summary="Add the current user to the libvirt group and set the default URI.",
+                key="acl",
+                title="VM image permissions",
+                summary="Grant the active user ACL access to /var/lib/libvirt/images.",
                 commands=[
-                    ["sudo", "usermod", "-aG", "libvirt", username],
-                    ["sh", "-lc", _format_shell_export(snapshot)],
+                    ["sudo", "mkdir", "-p", "/var/lib/libvirt/images"],
+                    ["sudo", "setfacl", "-R", "-m", f"u:{acl_username}:rwX", "/var/lib/libvirt/images"],
+                    ["sudo", "setfacl", "-m", f"d:u:{acl_username}:rwx", "/var/lib/libvirt/images"],
                 ],
+                details=["This step mirrors the shell installer ACL workflow."],
                 requires_confirmation=True,
-                details=["A logout/login or reboot is usually needed after group changes."],
+            )
+        )
+    else:
+        plan.append(
+            PlanStep(
+                key="acl-review",
+                title="VM image permissions review",
+                summary="ACL setup is skipped until setfacl and a non-root user are available.",
+                details=[
+                    "Install ACL tooling if you want writable shared image directories.",
+                    "Run this step from a normal user session instead of a root-only context.",
+                ],
+                selected=False,
             )
         )
 
@@ -355,6 +453,40 @@ def build_plan(snapshot: HostSnapshot, options: SetupOptions) -> list[PlanStep]:
                 ],
                 requires_confirmation=True,
                 details=["Bridge setup can interrupt networking if the chosen interface is wrong."],
+            )
+        )
+
+    if snapshot.nft_available and not snapshot.iptables_available:
+        plan.append(
+            PlanStep(
+                key="firewall",
+                title="Libvirt firewall backend",
+                summary="Ensure iptables-compatible tooling exists for libvirt networking.",
+                commands=[
+                    [*_install_command(effective_profile, False), effective_profile.iptables_package],
+                    [
+                        "sudo",
+                        "sh",
+                        "-lc",
+                        "mkdir -p /etc/libvirt && "
+                        "(grep -q '^firewall_backend' /etc/libvirt/network.conf 2>/dev/null "
+                        "&& sed -i 's/^firewall_backend.*/firewall_backend = \"iptables\"/' /etc/libvirt/network.conf "
+                        "|| echo 'firewall_backend = \"iptables\"' >> /etc/libvirt/network.conf)",
+                    ],
+                ],
+                details=["This step is only needed on nftables-first hosts without iptables compatibility tools."],
+            )
+        )
+    else:
+        plan.append(
+            PlanStep(
+                key="firewall-review",
+                title="Libvirt firewall backend review",
+                summary="No firewall backend adjustment is currently needed.",
+                details=[
+                    "iptables compatibility tools are already available, or nftables is not in use.",
+                ],
+                selected=False,
             )
         )
 
