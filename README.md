@@ -1,70 +1,220 @@
-# QEMU/KVM Setup Script
+# KVM Setup TUI
 
-Automated QEMU/KVM installation and configuration script for Linux systems.
+Colorful, professional, cross-distro KVM/QEMU host setup for Linux.
 
-## Supported Distributions
+This project is evolving from a single large shell installer into a maintainable application with a real terminal UI, a testable backend, and a packaging-friendly Python layout.
 
-- **Arch Linux** (and Arch-based)
-- **Debian** (and Debian-based)
-- **Ubuntu**
-- **Fedora** (and RHEL-based)
+## Project Shape
+
+The repo currently has two setup paths:
+
+- `install-kvm.sh`
+  The original interactive shell installer. Useful as a compatibility fallback while the Python app grows.
+- `kvm-setup-tui`
+  The new Python entry point. It can run as a readable CLI report by default or launch the full Textual TUI with `--run-tui`.
+
+## Goals
+
+- Support major Linux families instead of only one distro lane
+- Make audit and planning safe before host changes happen
+- Provide a premium terminal experience with color, structure, and live logs
+- Keep the codebase clean enough for later AUR packaging
+- Preserve practical KVM setup knowledge from the original script while improving maintainability
+
+## Supported Linux Families
+
+- Arch and Arch-based
+- Debian and Ubuntu-based
+- Fedora and RHEL-based
+- openSUSE and SUSE-based
+- Alpine Linux
+
+The widest support today is in audit and planning mode. Native Linux hosts with `systemd` are the best current target for applying changes.
+
+## WSL Note
+
+Ubuntu WSL is useful for testing the UI, discovery layer, and planning engine.
+
+It is not treated as a production KVM target:
+
+- the app detects WSL explicitly
+- apply mode intentionally stops at a warning step
+- this prevents pretending that a WSL guest is the same thing as a native virtualization host
+
+As of April 28, 2026, the code has been validated in an Ubuntu WSL environment for discovery and plan generation, but not for real KVM host activation there.
 
 ## Features
 
-- Automatic detection of Linux distribution and shell (bash, zsh, fish)
-- Hardware virtualization check (Intel VT-x / AMD-V)
-- KVM kernel module verification
-- IOMMU support detection (for PCIe passthrough)
-- Package installation with intelligent skip for already installed packages
-- Libvirt daemon configuration with timeout protection
-- TuneD profile optimization for virtualization
-- User permissions setup (libvirt group)
-- ACL configuration for VM images directory
-- Network bridge setup (optional)
-- Default NAT network configuration
-- VirtIO drivers download for Windows guests
-- Interactive prompts with colored output
+- Host audit for distro, package manager, shell, virtualization, KVM, `systemd`, IOMMU, and WSL state
+- Distro-aware package planning
+- TUI layout with execution profile controls, host summary, plan table, step details, and live log output
+- Default safe behavior through audit-only mode
+- Optional TuneD setup for virtualization hosts
+- Optional libvirt group setup
+- Optional default NAT network enablement
+- Optional bridge networking planning
+- Optional VirtIO ISO download for Windows guest installs
+- JSON output paths for future automation or packaging hooks
 
 ## Requirements
 
-- Linux system (Arch, Debian, Ubuntu, Fedora, or RHEL)
-- sudo privileges
-- Internet connection for package installation
+- Linux host for real host changes
+- Python 3.10+
+- `sudo` privileges for package installation and system configuration
+- Internet access for installing Python dependencies and virtualization packages
 
-## Usage
+## Quick Start
+
+### 1. Clone the repo
 
 ```bash
-# Download the script
-git clone https://github.com/MistanKh/kvm-setup-arch.git
-cd kvm-setup-arch
+git clone https://github.com/MistanKh/kvm-qemu-setup.git
+cd kvm-qemu-setup
+```
 
-# Make it executable
+### 2. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install the app
+
+```bash
+pip install -e .
+```
+
+### 4. Run the default CLI audit report
+
+```bash
+kvm-setup-tui
+```
+
+### 5. Launch the full TUI
+
+```bash
+kvm-setup-tui --run-tui
+```
+
+## CLI Usage
+
+The main entry point defaults to a plain-text audit and plan summary, which is useful for testing in minimal terminals, CI, or WSL.
+
+```bash
+kvm-setup-tui
+kvm-setup-tui --audit-json
+kvm-setup-tui --apply --plan-json
+kvm-setup-tui --apply --bridge enp4s0
+kvm-setup-tui --apply --virtio
+kvm-setup-tui --run-tui
+```
+
+### Useful flags
+
+- `--run-tui`
+  Launch the full Textual interface.
+- `--audit-json`
+  Print the detected host snapshot as JSON.
+- `--plan-json`
+  Print the generated plan as JSON.
+- `--apply`
+  Generate an executable host-change plan instead of audit-only mode.
+- `--reinstall`
+  Force reinstall packages where the distro backend supports it.
+- `--bridge IFACE`
+  Add bridge networking planning for a specific interface.
+- `--virtio`
+  Include the Windows VirtIO ISO download step.
+- `--skip-tuned`
+  Skip TuneD configuration.
+- `--skip-libvirt-group`
+  Skip libvirt group setup.
+- `--skip-default-network`
+  Skip the default NAT network step.
+
+## TUI Overview
+
+The TUI is designed to feel like a real setup console instead of a wall of prompts:
+
+- left sidebar for execution profile toggles
+- top host summary with distro and virtualization state
+- central plan table with selected/risk status
+- step detail panel for commands and notes
+- live log view during execution
+
+## Architecture
+
+The new Python app is split into small layers:
+
+- `src/kvm_setup_tui/backend/discovery.py`
+  Detects distro, shell, package manager, virtualization hints, `systemd`, and WSL status.
+- `src/kvm_setup_tui/backend/planner.py`
+  Maps host facts and user options into a distro-aware plan.
+- `src/kvm_setup_tui/backend/runner.py`
+  Executes selected commands and streams output to the UI.
+- `src/kvm_setup_tui/app.py`
+  The Textual frontend.
+- `src/kvm_setup_tui/cli.py`
+  The CLI front door for audit, JSON output, and TUI launch.
+
+## Legacy Shell Installer
+
+If you want the original shell-based experience:
+
+```bash
 chmod +x install-kvm.sh
-
-# Run the script
 ./install-kvm.sh
 ```
 
-### Options
+Legacy options:
 
 ```bash
-./install-kvm.sh --help           # Show help
-./install-kvm.sh --reinstall      # Force reinstall packages
-./install-kvm.sh --skip-reboot    # Skip reboot prompt
+./install-kvm.sh --help
+./install-kvm.sh --reinstall
+./install-kvm.sh --skip-reboot
 ```
 
-## What the Script Does
+## Testing
 
-1. **Detects** your OS (Arch/Debian/Ubuntu/Fedora/RHEL) and shell (bash/zsh/fish)
-2. **Checks** hardware virtualization (VT-x/AMD-V) and KVM modules
-3. **Verifies** IOMMU support (for GPU passthrough)
-4. **Installs** QEMU, libvirt, virt-manager and dependencies
-5. **Enables** libvirt daemons with proper socket configuration
-6. **Configures** TuneD for optimal VM performance
-7. **Sets up** user permissions and ACLs
-8. **Configures** network bridge (optional)
-9. **Starts** default NAT network
-10. **Downloads** VirtIO drivers for Windows guests (optional)
+### Local Python validation
+
+```bash
+python -m compileall src
+```
+
+### Planner tests
+
+```bash
+PYTHONPATH=src pytest
+```
+
+### Ubuntu WSL validation
+
+The new backend was tested against Ubuntu WSL with Python 3.12 using direct discovery and planning calls. The environment was correctly detected as:
+
+- Linux
+- Ubuntu 24.04.4 LTS
+- running inside WSL
+
+And apply-mode planning correctly stopped at a WSL warning instead of pretending to be a native KVM host.
+
+## AUR Direction
+
+This repo is now much closer to an AUR-friendly structure:
+
+- `pyproject.toml` defines the package metadata and console scripts
+- the app is installable with `pip install -e .`
+- the backend and UI are separated cleanly
+- tests can run without launching the TUI
+- the CLI gives a stable non-interactive surface for future packaging checks
+
+Before publishing to AUR, the next likely steps are:
+
+- add a PKGBUILD
+- pin and review runtime dependencies for Arch
+- test install and launch flow on native Arch
+- decide whether the package should install only the Python app, or also ship the legacy shell script
 
 ## Credits
 
