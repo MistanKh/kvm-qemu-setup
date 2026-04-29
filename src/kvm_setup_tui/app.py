@@ -18,7 +18,7 @@ class KvmSetupApp(App[None]):
         color: #e5eef7;
     }
     #hero {
-        background: linear-gradient(90deg, #0f172a 0%, #082f49 45%, #3f1d5a 100%);
+        background: #10233a;
         border: round #38bdf8;
         color: #f8fafc;
         padding: 1 2;
