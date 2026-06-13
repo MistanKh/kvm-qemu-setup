@@ -1,5 +1,7 @@
 # KVM Setup TUI
 
+> 📄 Case study & write-up: **[mistan.dev/projects/kvm-qemu-setup](https://mistan.dev/projects/kvm-qemu-setup/)**
+
 Colorful, professional, cross-distro KVM/QEMU host setup for Linux.
 
 This project is evolving from a single large shell installer into a maintainable application with a real terminal UI, a testable backend, and a packaging-friendly Python layout.
